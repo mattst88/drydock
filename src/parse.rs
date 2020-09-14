@@ -5,7 +5,12 @@ use regex;
 
 lazy_static! {
     static ref PARENT_REGEX: regex::Regex =
-        regex::Regex::new(r"(?m)^\s*(?:(?P<repo>[^:\s]+):)?(?P<path>\S+)").unwrap();
+        regex::Regex::new(r"(?m)^\s*(?:(?P<repo>[^:\s]+):)?(?P<path>[A-Za-z0-9_\-/.]+)").unwrap();
+}
+
+lazy_static! {
+    static ref LAYOUT_REGEX: regex::Regex =
+        regex::Regex::new(r"(?m)^repo-name\s=\s([A-Za-z0-9_-]+)").unwrap();
 }
 
 pub fn parse_parent_file(body: &str) -> Vec<(Option<String>, PathBuf)> {
@@ -19,6 +24,12 @@ pub fn parse_parent_file(body: &str) -> Vec<(Option<String>, PathBuf)> {
     output
 }
 
+/// Parse layout.conf and return only the overlay's name for now.
+/// repo-name = chromiumos
+pub fn parse_layout_conf(body: &str) -> Option<&str> {
+    LAYOUT_REGEX.captures(body)?.get(1).map(|m| m.as_str())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -28,6 +39,16 @@ mod tests {
 chromiumos:features/llvm
 
 ";
+
+    const LAYOUT_SAMPLE: &str = "
+cache-format = md5-dict
+masters = portage-stable eclass-overlay
+profile-formats = portage-2
+repo-name = chromiumos
+thin-manifests = true
+use-manifests = strict
+";
+
     #[test]
     fn test_parent_regex() {
         assert_eq!(
@@ -41,5 +62,10 @@ chromiumos:features/llvm
                 )
             ]
         );
+    }
+
+    #[test]
+    fn test_layout_regex() {
+        assert_eq!(parse_layout_conf(LAYOUT_SAMPLE), Some("chromiumos"))
     }
 }

@@ -1,6 +1,9 @@
-use std::path::PathBuf;
+use std::fs;
+use std::path::{Path, PathBuf};
 
-use anyhow;
+use crate::parse;
+
+use anyhow::{self, Context};
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct Overlay {
@@ -11,6 +14,13 @@ pub struct Overlay {
 impl Overlay {
     pub fn new(name: String, path: PathBuf) -> Self {
         Self { name, path }
+    }
+
+    pub fn try_from_path(root_path: &Path) -> Option<Self> {
+        let metadata_path = root_path.join("metadata/layout.conf");
+        let layout_body = fs::read_to_string(&metadata_path).ok()?;
+        let repo_name = parse::parse_layout_conf(&layout_body)?;
+        Some(Overlay::new(repo_name.into(), root_path.into()))
     }
 
     pub fn profiles_root(&self) -> PathBuf {
@@ -41,7 +51,9 @@ impl<'a> Profile<'a> {
 
     pub fn create_relative(&self, raw_rel_path: PathBuf) -> anyhow::Result<Self> {
         let rough_path = self.full_path().join(raw_rel_path);
-        let canon_path = rough_path.canonicalize()?;
+        let canon_path = rough_path
+            .canonicalize()
+            .with_context(|| format!("Failed to find path at {}", &rough_path.display()))?;
         let canon_relative_path = canon_path
             .strip_prefix(self.overlay.profiles_root())?
             .to_owned();
