@@ -1,8 +1,12 @@
+mod overlay;
+mod parse;
+
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
+use overlay::{Overlay, Profile};
 // use petgraph;
 
 const PARENT_FILE: &'static str = "parent";
@@ -12,41 +16,59 @@ fn main() {
 
     let mut ancestors = target.ancestors();
     let profile_root = ancestors.find(|p| p.ends_with("profiles")).unwrap();
+    let overlay = Overlay::new(
+        "chromiumos".to_owned(),
+        profile_root.parent().unwrap().to_owned(),
+    );
 
-    let mut profile_map: HashMap<PathBuf, Vec<PathBuf>> = HashMap::new();
-    let rel_path = target.strip_prefix(profile_root).unwrap().to_owned();
+    let mut overlay_map: HashMap<String, Overlay> = HashMap::new();
+    overlay_map.insert(overlay.name.clone(), overlay.clone());
 
-    explore(rel_path, &mut profile_map, profile_root);
-    dbg!(profile_map);
+    let mut profile_map: HashMap<Profile, Vec<Profile>> = HashMap::new();
+    let start_profile = overlay
+        .profile_from(target.strip_prefix(profile_root).unwrap().to_owned())
+        .unwrap();
+
+    explore(start_profile.clone(), &mut profile_map, &overlay_map);
+
+    print_profile_tree(0, &start_profile, &profile_map);
 }
 
-fn explore(
-    rel_path: PathBuf,
-    profile_map: &mut HashMap<PathBuf, Vec<PathBuf>>,
-    profile_root: &Path,
+fn explore<'a>(
+    profile: Profile<'a>,
+    profile_map: &mut HashMap<Profile<'a>, Vec<Profile<'a>>>,
+    overlay_map: &'a HashMap<String, Overlay>,
 ) {
-    let mut parents: Vec<PathBuf> = Vec::new();
-
-    let target = dbg!(profile_root.join(&rel_path));
-    if let Ok(parent_file) = fs::read_to_string(target.join(PARENT_FILE)) {
-        for line in parent_file.lines() {
-            if line.trim().is_empty() {
-                continue;
+    if let Ok(parent_file) = fs::read_to_string(profile.full_path().join(PARENT_FILE)) {
+        for (overlay_name, raw_path) in parse::parse_parent_file(&parent_file) {
+            let new_profile: Profile = match overlay_name {
+                Some(overlay_name) => {
+                    let target_overlay = overlay_map.get(&overlay_name).unwrap();
+                    target_overlay.profile_from(raw_path).unwrap()
+                }
+                None => profile.create_relative(raw_path).unwrap(),
             };
-            parents.push(
-                target
-                    .join(line.trim())
-                    .canonicalize()
-                    .unwrap()
-                    .strip_prefix(profile_root)
-                    .unwrap()
-                    .to_owned(),
-            );
-        }
 
-        profile_map.insert(rel_path, parents.clone());
-        for p in &parents {
-            explore(p.clone(), profile_map, profile_root)
+            let parent_list = profile_map.entry(profile.clone()).or_insert(Vec::new());
+            parent_list.push(new_profile);
         }
+        let frontier = profile_map.get(&profile).cloned().unwrap_or_default();
+        for p in frontier {
+            explore(p, profile_map, overlay_map)
+        }
+    }
+}
+
+fn print_profile_tree<'a>(
+    depth: usize,
+    profile: &'a Profile<'a>,
+    profile_map: &'a HashMap<Profile<'a>, Vec<Profile<'a>>>,
+) {
+    for _ in 0..depth {
+        print!("  ");
+    }
+    println!("{}:{}", profile.overlay.name, profile.rel_path.display());
+    for p in profile_map.get(profile).unwrap_or(&Vec::new()).iter() {
+        print_profile_tree(depth + 1, p, profile_map)
     }
 }
