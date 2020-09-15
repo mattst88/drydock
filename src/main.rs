@@ -27,6 +27,18 @@ fn main() -> anyhow::Result<()> {
                         .required(true)
                         .multiple(true)
                         .help("The target profile. Example: chromiumos:base"),
+                )
+                .arg(
+                    Arg::with_name("tree")
+                    .long("tree")
+                    .takes_value(false)
+                    .help("Print an indented tree of the profile parent structure.")
+                )
+                .arg(
+                    Arg::with_name("graph")
+                    .long("graph")
+                    .takes_value(false)
+                    .help("Print graphviz dot formatting for the profile parent structure.")
                 ),
         )
         .get_matches();

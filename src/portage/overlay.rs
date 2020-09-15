@@ -51,7 +51,7 @@ pub fn build_overlay_map(config: &config::Config) -> HashMap<String, Overlay> {
     walker.max_depth(Some(1));
 
     for overlay_path in config.get_array("overlay_paths").unwrap() {
-        let p = dbg!(overlay_path.into_str().unwrap());
+        let p = overlay_path.into_str().unwrap();
         walker.add(p);
     }
 

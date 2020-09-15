@@ -25,10 +25,10 @@ pub fn parents(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result
     for profile in start_profiles {
         explore(profile.clone(), &mut profile_map, &overlay_map)?;
 
-        print_profile_tree(0, &profile, &profile_map);
+        if sub_args.is_present("tree") { print_profile_tree(0, &profile, &profile_map); }
     }
 
-    graph::dump_graphviz(&profile_map);
+    if sub_args.is_present("graph") { graph::dump_graphviz(&profile_map); }
 
     Ok(())
 }
