@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use anyhow;
 use lazy_static::lazy_static;
 use regex;
 
@@ -26,8 +27,13 @@ pub fn parse_parent_file(body: &str) -> Vec<(Option<String>, PathBuf)> {
 
 /// Parse layout.conf and return only the overlay's name for now.
 /// repo-name = chromiumos
-pub fn parse_layout_conf(body: &str) -> Option<&str> {
-    LAYOUT_REGEX.captures(body)?.get(1).map(|m| m.as_str())
+pub fn parse_layout_conf(body: &str) -> anyhow::Result<&str> {
+    LAYOUT_REGEX
+        .captures(body)
+        .map(|m| m.get(1))
+        .flatten()
+        .map(|m| m.as_str())
+        .ok_or(anyhow::anyhow!("problem parsing layout.conf"))
 }
 
 #[cfg(test)]
@@ -66,6 +72,6 @@ use-manifests = strict
 
     #[test]
     fn test_layout_regex() {
-        assert_eq!(parse_layout_conf(LAYOUT_SAMPLE), Some("chromiumos"))
+        assert_eq!(parse_layout_conf(LAYOUT_SAMPLE).unwrap(), "chromiumos")
     }
 }

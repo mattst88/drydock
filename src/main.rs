@@ -2,6 +2,7 @@ mod overlay;
 mod parse;
 
 use std::collections::HashMap;
+use std::convert::TryFrom;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -96,7 +97,7 @@ fn build_overlay_map(config: &config::Config) -> HashMap<String, Overlay> {
 
     for candidate_path in walker.build() {
         let candidate_path = candidate_path.unwrap();
-        if let Some(x) = overlay::Overlay::try_from_path(candidate_path.path()) {
+        if let Ok(x) = Overlay::try_from(candidate_path.path()) {
             map.insert(x.name.clone(), x);
         }
     }

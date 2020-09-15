@@ -1,3 +1,4 @@
+use std::convert::TryFrom;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -16,13 +17,6 @@ impl Overlay {
         Self { name, path }
     }
 
-    pub fn try_from_path(root_path: &Path) -> Option<Self> {
-        let metadata_path = root_path.join("metadata/layout.conf");
-        let layout_body = fs::read_to_string(&metadata_path).ok()?;
-        let repo_name = parse::parse_layout_conf(&layout_body)?;
-        Some(Overlay::new(repo_name.into(), root_path.into()))
-    }
-
     pub fn profiles_root(&self) -> PathBuf {
         self.path.join("profiles")
     }
@@ -35,6 +29,17 @@ impl Overlay {
             overlay: &self,
             rel_path: canon_relative_path,
         })
+    }
+}
+
+impl TryFrom<&Path> for Overlay {
+    type Error = anyhow::Error;
+
+    fn try_from(value: &Path) -> Result<Self, Self::Error> {
+        let metadata_path = value.join("metadata/layout.conf");
+        let layout_body = fs::read_to_string(&metadata_path)?;
+        let repo_name = parse::parse_layout_conf(&layout_body)?;
+        Ok(Overlay::new(repo_name.into(), value.into()))
     }
 }
 
