@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -43,4 +44,25 @@ impl TryFrom<&Path> for Overlay {
         let repo_name = parse::parse_layout_conf(&layout_body)?;
         Ok(Overlay::new(repo_name.into(), value.into()))
     }
+}
+
+pub fn build_overlay_map(config: &config::Config) -> HashMap<String, Overlay> {
+    let mut walker = ignore::WalkBuilder::new(".");
+    walker.max_depth(Some(1));
+
+    for overlay_path in config.get_array("overlay_paths").unwrap() {
+        let p = dbg!(overlay_path.into_str().unwrap());
+        walker.add(p);
+    }
+
+    let mut map = HashMap::new();
+
+    for candidate_path in walker.build() {
+        let candidate_path = candidate_path.unwrap();
+        if let Ok(x) = Overlay::try_from(candidate_path.path()) {
+            map.insert(x.name.clone(), x);
+        }
+    }
+
+    map
 }
