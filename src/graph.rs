@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
-use petgraph::graphmap::DiGraphMap;
 use petgraph::dot;
+use petgraph::graphmap::DiGraphMap;
 
 use crate::overlay::Profile;
 
@@ -32,6 +32,8 @@ pub fn dump_graphviz(profile_map: &HashMap<Profile, Vec<Profile>>) {
         }
     }
 
-    println!("{:?}", dot::Dot::with_config(&graphmap, &[dot::Config::EdgeNoLabel]));
-
+    println!(
+        "{:?}",
+        dot::Dot::with_config(&graphmap, &[dot::Config::EdgeNoLabel])
+    );
 }

@@ -10,6 +10,7 @@ use std::fs;
 use overlay::{Overlay, Profile};
 
 use anyhow;
+use clap::{App, Arg, SubCommand};
 use config;
 use ignore;
 
@@ -23,23 +24,48 @@ fn main() -> anyhow::Result<()> {
         .merge(config::File::with_name(&config_path))
         .unwrap();
 
-    let target = dbg!(env::args().nth(1).unwrap());
-    let (repo, rel_path) = dbg!(parse::parse_parent_file(&target)
-        .into_iter()
-        .nth(0)
-        .unwrap());
+    let args = App::new("drydock")
+        .version("0.0.1")
+        .about("A tool for Portage profile analysis and introspection.")
+        .subcommand(
+            SubCommand::with_name("parents")
+                .about("Show the inheritance tree for the target profile.")
+                .arg(
+                    Arg::with_name("profile")
+                        .takes_value(true)
+                        .required(true)
+                        .multiple(true)
+                        .help("The target profile. Example: chromiumos:base"),
+                ),
+        )
+        .get_matches();
 
-    let overlay_map: HashMap<String, Overlay> = build_overlay_map(&settings);
+    if let Some(sub_args) = args.subcommand_matches("parents") {
+        let targets = sub_args.values_of("profile").unwrap();
+        let targets: Vec<_> = targets
+            .flat_map(|target| parse::parse_parent_file(&target))
+            .collect();
 
-    let mut profile_map: HashMap<Profile, Vec<Profile>> = HashMap::new();
+        let overlay_map: HashMap<String, Overlay> = build_overlay_map(&settings);
 
-    let start_profile = overlay_map[&repo.unwrap()].profile_from(rel_path).unwrap();
+        let mut profile_map: HashMap<Profile, Vec<Profile>> = HashMap::new();
 
-    explore(start_profile.clone(), &mut profile_map, &overlay_map)?;
+        let start_profiles: Vec<Profile> = targets
+            .into_iter()
+            .map(|(r, p)| overlay_map[&r.unwrap()].profile_from(p))
+            .collect::<Result<Vec<_>, _>>()?;
 
-    print_profile_tree(0, &start_profile, &profile_map);
+        for profile in start_profiles {
+            explore(profile.clone(), &mut profile_map, &overlay_map)?;
 
-    graph::dump_graphviz(&profile_map);
+            print_profile_tree(0, &profile, &profile_map);
+        }
+
+        graph::dump_graphviz(&profile_map);
+    } else {
+        unimplemented!()
+    }
+
     Ok(())
 }
 
