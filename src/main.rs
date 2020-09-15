@@ -1,3 +1,4 @@
+mod graph;
 mod overlay;
 mod parse;
 
@@ -5,14 +6,12 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::env;
 use std::fs;
-use std::path::PathBuf;
 
 use overlay::{Overlay, Profile};
 
 use anyhow;
 use config;
 use ignore;
-// use petgraph;
 
 const PARENT_FILE: &'static str = "parent";
 
@@ -39,6 +38,8 @@ fn main() -> anyhow::Result<()> {
     explore(start_profile.clone(), &mut profile_map, &overlay_map)?;
 
     print_profile_tree(0, &start_profile, &profile_map);
+
+    graph::dump_graphviz(&profile_map);
     Ok(())
 }
 
