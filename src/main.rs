@@ -1,13 +1,13 @@
 mod graph;
-mod overlay;
 mod parse;
+mod portage;
 
 use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::env;
 use std::fs;
 
-use overlay::{Overlay, Profile};
+use crate::portage::{Overlay, Profile};
 
 use anyhow;
 use clap::{App, Arg, SubCommand};

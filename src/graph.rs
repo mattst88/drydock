@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use petgraph::dot;
 use petgraph::graphmap::DiGraphMap;
 
-use crate::overlay::Profile;
+use crate::portage::Profile;
 
 pub fn dump_graphviz(profile_map: &HashMap<Profile, Vec<Profile>>) {
     let mut qualified_profile_names: HashSet<String> = HashSet::new();
