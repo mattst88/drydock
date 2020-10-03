@@ -30,15 +30,15 @@ fn main() -> anyhow::Result<()> {
                 )
                 .arg(
                     Arg::with_name("tree")
-                    .long("tree")
-                    .takes_value(false)
-                    .help("Print an indented tree of the profile parent structure.")
+                        .long("tree")
+                        .takes_value(false)
+                        .help("Print an indented tree of the profile parent structure."),
                 )
                 .arg(
                     Arg::with_name("graph")
-                    .long("graph")
-                    .takes_value(false)
-                    .help("Print graphviz dot formatting for the profile parent structure.")
+                        .long("graph")
+                        .takes_value(false)
+                        .help("Print graphviz dot formatting for the profile parent structure."),
                 ),
         )
         .get_matches();
