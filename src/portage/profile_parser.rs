@@ -1,5 +1,6 @@
 #![allow(dead_code, unused_imports)]
 
+use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
@@ -59,14 +60,28 @@ struct Assignment<'a> {
     rval: Vec<Arc<Value<'a>>>,
 }
 
-fn full_parse(mut input: &str) -> IResult<&str, Vec<Assignment>> {
-    let mut assignments = Vec::new();
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RVal<'a> {
+    vals: Vec<Arc<Value<'a>>>,
+}
+
+impl<'a> fmt::Display for RVal<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        for val in self.vals.iter() {
+            write!(f, "{}", val)?;
+        }
+        Ok(())
+    }
+}
+
+fn full_parse(mut input: &str) -> IResult<&str, HashMap<&str, RVal>> {
+    let mut assignment_map: HashMap<&str, RVal> = HashMap::new();
 
     while input != "" {
         if let Ok((new_input, _)) = comment_line(input) {
             input = new_input;
-        } else if let Ok((new_input, asn)) = assignment(input, &assignments) {
-            assignments.push(asn);
+        } else if let Ok((new_input, (lval, rval))) = assignment(input, &assignment_map) {
+            assignment_map.insert(lval, rval);
             input = new_input;
         } else {
             let (new, _) = multispace1(input)?;
@@ -74,7 +89,7 @@ fn full_parse(mut input: &str) -> IResult<&str, Vec<Assignment>> {
         }
     }
 
-    Ok((input, assignments))
+    Ok((input, assignment_map))
 }
 
 fn comment_line(input: &str) -> IResult<&str, &str> {
@@ -87,44 +102,37 @@ fn multi_line(input: &str) -> IResult<&str, Vec<&str>> {
 
 fn assignment<'a, 'b>(
     input: &'a str,
-    prior_asn: &'b [Assignment<'a>],
-) -> IResult<&'a str, Assignment<'a>> {
+    prior_asn: &'b HashMap<&'a str, RVal<'a>>,
+) -> IResult<&'a str, (&'a str, RVal<'a>)> {
     let quoted_rval_parser = |i| quoted_rval(i, prior_asn);
-    map(
-        preceded(
-            multispace0,
-            tuple((
-                terminated(variable, preceded(multispace0, tag("="))),
-                preceded(multispace0, quoted_rval_parser),
-            )),
-        ),
-        |(l, r)| Assignment { lval: l, rval: r },
+    preceded(
+        multispace0,
+        tuple((
+            terminated(variable, preceded(multispace0, tag("="))),
+            preceded(multispace0, quoted_rval_parser),
+        )),
     )(input)
 }
 
 fn quoted_rval<'a, 'b>(
     input: &'a str,
-    prior_asgn: &'b [Assignment<'a>],
-) -> IResult<&'a str, Vec<Arc<Value<'a>>>> {
-    terminated(
-        preceded(
+    prior_asgn: &'b HashMap<&'a str, RVal<'a>>,
+) -> IResult<&'a str, RVal<'a>> {
+    map(
+        terminated(
+            preceded(
+                tag("\""),
+                many0(map(alt((literal, expansion)), |v| match v {
+                    v @ Value::Literal { .. } => Arc::new(v),
+                    Value::Expansion { name, .. } => {
+                        let value = prior_asgn.get(name).map(|a| a.vals.clone());
+                        Arc::new(Value::Expansion { name, value })
+                    }
+                })),
+            ),
             tag("\""),
-            many0(map(alt((literal, expansion)), |v| match v {
-                v @ Value::Literal { .. } => Arc::new(v),
-                Value::Expansion { name, .. } => {
-                    let last_asgn = prior_asgn
-                        .iter()
-                        .rfind(|asn| asn.lval == name)
-                        .map(|a| a.rval.clone());
-
-                    Arc::new(Value::Expansion {
-                        name: name,
-                        value: last_asgn,
-                    })
-                }
-            })),
         ),
-        tag("\""),
+        |vals| RVal { vals },
     )(input)
 }
 
@@ -264,21 +272,24 @@ LD="x86_64-pc-linux-gnu-ld.lld"
     const ASSIGN: &str = r#"USE="${USE} hardened multilib pic pie -introspection -cracklib""#;
     #[test]
     fn test_single_assignment_parse() {
-        let res = assignment(ASSIGN, &[]);
+        let res = assignment(ASSIGN, &HashMap::new());
         let (out, asgn) = res.unwrap();
+
         assert_eq!(
-            Assignment {
-                lval: "USE",
-                rval: vec![
-                    Arc::new(Value::Expansion {
-                        name: "USE",
-                        value: None
-                    }),
-                    Arc::new(Value::Literal(
-                        " hardened multilib pic pie -introspection -cracklib"
-                    ))
-                ]
-            },
+            (
+                "USE",
+                RVal {
+                    vals: vec![
+                        Arc::new(Value::Expansion {
+                            name: "USE",
+                            value: None
+                        }),
+                        Arc::new(Value::Literal(
+                            " hardened multilib pic pie -introspection -cracklib"
+                        ))
+                    ]
+                }
+            ),
             asgn
         );
         assert_eq!(out, "");
@@ -293,27 +304,30 @@ USE="${USE} bar"
     fn test_multi_assignment_parse() {
         let res = full_parse(MULTI_ASSIGN);
         let (out, res) = res.unwrap();
-        assert_eq!(
-            res,
-            vec![
-                Assignment {
-                    lval: "USE",
-                    rval: vec![Arc::new(Value::Literal("foo"))]
-                },
-                Assignment {
-                    lval: "USE",
-                    rval: vec![
-                        Arc::new(Value::Expansion {
-                            name: "USE",
-                            value: Some(vec![Arc::new(Value::Literal("foo"))])
-                        }),
-                        Arc::new(Value::Literal(" bar"))
-                    ]
-                }
-            ]
+        let mut expected = HashMap::new();
+        expected.insert(
+            "USE",
+            RVal {
+                vals: vec![
+                    Arc::new(Value::Expansion {
+                        name: "USE",
+                        value: Some(vec![Arc::new(Value::Literal("foo"))]),
+                    }),
+                    Arc::new(Value::Literal(" bar")),
+                ],
+            },
         );
+        assert_eq!(res, expected);
 
         assert_eq!(out, "");
+    }
+
+    #[test]
+    fn test_multi_assign_evaluation() {
+        let res = full_parse(MULTI_ASSIGN);
+        let (out, res) = res.unwrap();
+        assert_eq!(out, "");
+        assert_eq!("foo bar", format!("{}", res["USE"]));
     }
 
     #[test]
@@ -321,6 +335,6 @@ USE="${USE} bar"
         let res = full_parse(FULL_SAMPLE);
         let (out, res) = res.unwrap();
         assert_eq!(out, "");
-        assert_eq!(res.len(), 22);
+        assert_eq!(res.len(), 13);
     }
 }
