@@ -1,5 +1,6 @@
 #![allow(dead_code, unused_imports)]
 
+use std::fmt;
 use std::sync::Arc;
 
 use nom::{
@@ -32,6 +33,24 @@ enum Value<'a> {
         name: &'a str,
         value: Option<Vec<Arc<Value<'a>>>>,
     },
+}
+
+impl<'a> fmt::Display for Value<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Value::Literal(s) => write!(f, "{}", s),
+            Value::Expansion { name, value } => {
+                if let Some(values) = value {
+                    for val in values {
+                        write!(f, "{}", val)?;
+                    }
+                    Ok(())
+                } else {
+                    write!(f, "!!${{{}}}!!", name)
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
