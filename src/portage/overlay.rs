@@ -2,12 +2,14 @@ use std::collections::HashMap;
 use std::convert::TryFrom;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use crate::parse;
 
 use super::Profile;
 
 use anyhow;
+use ignore::{self, DirEntry, WalkState};
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct Overlay {
@@ -48,21 +50,90 @@ impl TryFrom<&Path> for Overlay {
 
 pub fn build_overlay_map(config: &config::Config) -> HashMap<String, Overlay> {
     let mut walker = ignore::WalkBuilder::new(".");
-    walker.max_depth(Some(1));
+    walker.filter_entry(|dir| dir.path().is_dir());
+    walker.max_depth(Some(3));
 
     for overlay_path in config.get_array("overlay_paths").unwrap() {
         let p = overlay_path.into_str().unwrap();
         walker.add(p);
     }
 
-    let mut map = HashMap::new();
+    let mut table = OverlayTableBuilder::new();
 
-    for candidate_path in walker.build() {
-        let candidate_path = candidate_path.unwrap();
-        if let Ok(x) = Overlay::try_from(candidate_path.path()) {
-            map.insert(x.name.clone(), x);
+    let walker = walker.build_parallel();
+
+    walker.visit(&mut table);
+
+    OverlayTable::from(table).map
+}
+
+#[derive(Debug)]
+pub struct OverlayTable {
+    pub map: HashMap<String, Overlay>,
+}
+
+impl OverlayTable {
+    pub fn new() -> Self {
+        Self {
+            map: HashMap::new(),
         }
     }
+}
 
-    map
+impl From<OverlayTableBuilder> for OverlayTable {
+    fn from(other: OverlayTableBuilder) -> Self {
+        Arc::try_unwrap(other.table).unwrap().into_inner().unwrap()
+    }
+}
+#[derive(Debug)]
+pub struct OverlayTableBuilder {
+    table: Arc<Mutex<OverlayTable>>,
+}
+
+impl OverlayTableBuilder {
+    pub fn new() -> Self {
+        Self {
+            table: Arc::new(Mutex::new(OverlayTable::new())),
+        }
+    }
+}
+
+impl<'s> ignore::ParallelVisitorBuilder<'s> for OverlayTableBuilder {
+    fn build(&mut self) -> Box<dyn ignore::ParallelVisitor + 's> {
+        Box::new(OverlayTablePiece {
+            table: Arc::clone(&self.table),
+            map: HashMap::new(),
+        })
+    }
+}
+
+#[derive(Debug)]
+pub struct OverlayTablePiece {
+    table: Arc<Mutex<OverlayTable>>,
+    map: HashMap<String, Overlay>,
+}
+
+impl Drop for OverlayTablePiece {
+    fn drop(&mut self) {
+        let mut table = self.table.lock().unwrap();
+        let map = std::mem::replace(&mut self.map, HashMap::new());
+        for (k, v) in map {
+            table.map.insert(k, v);
+        }
+    }
+}
+
+impl ignore::ParallelVisitor for OverlayTablePiece {
+    fn visit(&mut self, entry: Result<DirEntry, ignore::Error>) -> WalkState {
+        if let Ok(dir) = entry {
+            if let Ok(overlay) = Overlay::try_from(dir.path()) {
+                self.map.insert(overlay.name.clone(), overlay);
+                WalkState::Skip
+            } else {
+                WalkState::Continue
+            }
+        } else {
+            WalkState::Continue
+        }
+    }
 }
