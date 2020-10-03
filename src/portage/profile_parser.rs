@@ -330,6 +330,46 @@ USE="${USE} bar"
         assert_eq!("foo bar", format!("{}", res["USE"]));
     }
 
+    const MANY_ASSIGN: &str = r#"
+USE="foo"
+USE="${USE} bar"
+USE="${USE} bar"
+USE="${USE} bar"
+USE="${USE} bar"
+USE="${USE} bar"
+USE="${USE} bar"
+USE="${USE} bar"
+USE="${USE} bar"
+USE="${USE} bar"
+"#;
+
+    #[test]
+    fn test_many_assign_evaluation() {
+        let res = full_parse(MANY_ASSIGN);
+        let (out, res) = res.unwrap();
+        assert_eq!(out, "");
+        assert_eq!(
+            "foo bar bar bar bar bar bar bar bar bar",
+            format!("{}", res["USE"])
+        );
+    }
+
+    const TWENTY_FIVE_LAUGHS: &str = r#"
+LOL="lol"
+LOL="${LOL} ${LOL} ${LOL} ${LOL} ${LOL}"
+LOL="${LOL} ${LOL} ${LOL} ${LOL} ${LOL}"
+"#;
+
+    const TWENTY_FIVE_LAUGHS_EXPANDED: &str = "lol lol lol lol lol lol lol lol lol lol lol lol lol lol lol lol lol lol lol lol lol lol lol lol lol";
+
+    #[test]
+    fn test_25_laughs_evaluation() {
+        let res = full_parse(TWENTY_FIVE_LAUGHS);
+        let (out, res) = res.unwrap();
+        assert_eq!(out, "");
+        assert_eq!(format!("{}", res["LOL"]), TWENTY_FIVE_LAUGHS_EXPANDED);
+    }
+
     #[test]
     fn test_full_example_parse() {
         let res = full_parse(FULL_SAMPLE);
