@@ -70,31 +70,42 @@ fn assignment<'a, 'b>(
     input: &'a str,
     prior_asn: &'b [Assignment<'a>],
 ) -> IResult<&'a str, Assignment<'a>> {
+    let quoted_rval_parser = |i| quoted_rval(i, prior_asn);
     map(
         preceded(
             multispace0,
             tuple((
-                variable,
-                preceded(multispace0, tag("=")),
-                preceded(multispace0, tag("\"")),
-                many0(map(alt((literal, expansion)), |v| match v {
-                    v @ Value::Literal { .. } => Arc::new(v),
-                    Value::Expansion { name, .. } => {
-                        let last_asgn = prior_asn
-                            .iter()
-                            .rfind(|asn| asn.lval == name)
-                            .map(|a| a.rval.clone());
-
-                        Arc::new(Value::Expansion {
-                            name: name,
-                            value: last_asgn,
-                        })
-                    }
-                })),
-                tag("\""),
+                terminated(variable, preceded(multispace0, tag("="))),
+                preceded(multispace0, quoted_rval_parser),
             )),
         ),
-        |(l, _, _, r, _)| Assignment { lval: l, rval: r },
+        |(l, r)| Assignment { lval: l, rval: r },
+    )(input)
+}
+
+fn quoted_rval<'a, 'b>(
+    input: &'a str,
+    prior_asgn: &'b [Assignment<'a>],
+) -> IResult<&'a str, Vec<Arc<Value<'a>>>> {
+    terminated(
+        preceded(
+            tag("\""),
+            many0(map(alt((literal, expansion)), |v| match v {
+                v @ Value::Literal { .. } => Arc::new(v),
+                Value::Expansion { name, .. } => {
+                    let last_asgn = prior_asgn
+                        .iter()
+                        .rfind(|asn| asn.lval == name)
+                        .map(|a| a.rval.clone());
+
+                    Arc::new(Value::Expansion {
+                        name: name,
+                        value: last_asgn,
+                    })
+                }
+            })),
+        ),
+        tag("\""),
     )(input)
 }
 
@@ -286,12 +297,11 @@ USE="${USE} bar"
         assert_eq!(out, "");
     }
 
-
     #[test]
     fn test_full_example_parse() {
         let res = full_parse(FULL_SAMPLE);
         let (out, res) = res.unwrap();
         assert_eq!(out, "");
-        assert_eq!(res, vec![]);
+        assert_eq!(res.len(), 22);
     }
 }
