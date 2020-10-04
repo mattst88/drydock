@@ -3,32 +3,41 @@ use std::collections::{HashMap, HashSet};
 use petgraph::dot;
 use petgraph::graphmap::DiGraphMap;
 
-use crate::portage::Profile;
+use crate::portage::overlay::OverlayTable;
+use crate::portage::profile::ProfileKey;
 
-pub fn dump_graphviz(profile_map: &HashMap<Profile, Vec<Profile>>) {
-    let mut qualified_profile_names: HashSet<String> = HashSet::new();
+pub fn dump_graphviz(table: &OverlayTable, roots: &[ProfileKey]) {
+    let mut graphmap: DiGraphMap<&str, ()> = DiGraphMap::new();
 
-    for p in profile_map.keys() {
-        qualified_profile_names.insert(format!("{}:{}", p.overlay.name, p.rel_path.display()));
+    for root in roots {
+        graphmap.add_node(root.full_name());
     }
 
-    for p in profile_map.values().flat_map(|item| item.iter()) {
-        qualified_profile_names.insert(format!("{}:{}", p.overlay.name, p.rel_path.display()));
-    }
+    let mut frontier: Vec<&ProfileKey> = roots.iter().collect();
+    let mut visited: HashSet<ProfileKey> = HashSet::new();
 
-    let mut graphmap = DiGraphMap::new();
+    while let Some(key) = frontier.pop() {
+        if visited.contains(key) {
+            continue;
+        } else {
+            visited.insert(key.clone());
+        }
 
-    for (k, v) in profile_map {
-        let key_name = format!("{}:{}", k.overlay.name, k.rel_path.display());
-
-        for v in v {
-            let value_name = format!("{}:{}", v.overlay.name, v.rel_path.display());
-
-            graphmap.add_edge(
-                qualified_profile_names.get(&key_name).unwrap(),
-                qualified_profile_names.get(&value_name).unwrap(),
-                (),
-            );
+        if let Some(o) = table.map.get(key.overlay()) {
+            if let Some(p) = o.profiles.get(key.profile()) {
+                for parent in p.parents.iter() {
+                    graphmap.add_edge(key.full_name(), parent.full_name(), ());
+                    frontier.push(parent)
+                }
+            } else {
+                eprintln!("{} : {}", key.overlay(), key.profile());
+                panic!("Missing a profile!\n Requested: {:?}\nFound: {:?}", key, o);
+            }
+        } else {
+            eprintln!("{} : {}", key.overlay(), key.profile());
+            let mut keys: Vec<String> = table.map.keys().cloned().collect();
+            keys.sort();
+            panic!("Missing an overlay!\n Requested: {:?}\n", key);
         }
     }
 

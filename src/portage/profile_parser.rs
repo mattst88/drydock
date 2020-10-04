@@ -10,7 +10,7 @@ use nom::{
     character::complete::{self, multispace0, multispace1, one_of, satisfy},
     character::{is_alphabetic, is_alphanumeric},
     combinator::{map, recognize},
-    multi::{self, many0},
+    multi::{self, many0, many1},
     sequence::{pair, preceded, terminated, tuple},
     IResult,
 };
@@ -92,7 +92,7 @@ fn full_parse(mut input: &str) -> IResult<&str, HashMap<&str, RVal>> {
     Ok((input, assignment_map))
 }
 
-fn comment_line(input: &str) -> IResult<&str, &str> {
+pub fn comment_line(input: &str) -> IResult<&str, &str> {
     recognize(preceded(complete::char('#'), complete::not_line_ending))(input)
 }
 

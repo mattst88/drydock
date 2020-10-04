@@ -2,7 +2,20 @@ use std::path::PathBuf;
 
 use anyhow;
 use lazy_static::lazy_static;
+use nom::{
+    branch::alt,
+    bytes::complete::{is_not, tag},
+    character::complete::{self, multispace0, multispace1, one_of, satisfy},
+    character::{is_alphabetic, is_alphanumeric},
+    combinator::{map, recognize},
+    multi::{self, many0, many1},
+    sequence::{pair, preceded, separated_pair, terminated, tuple},
+    Finish, IResult,
+};
+
 use regex;
+
+use crate::portage::profile_parser as parse;
 
 lazy_static! {
     static ref PARENT_REGEX: regex::Regex =
@@ -14,15 +27,25 @@ lazy_static! {
         regex::Regex::new(r"(?m)^repo-name\s=\s([A-Za-z0-9_-]+)").unwrap();
 }
 
-pub fn parse_parent_file(body: &str) -> Vec<(Option<String>, PathBuf)> {
-    let mut output = Vec::new();
-    for cap in PARENT_REGEX.captures_iter(body) {
-        output.push((
-            cap.get(1).map(|m| m.as_str().to_owned()),
-            PathBuf::from(&cap["path"]),
-        ))
-    }
-    output
+pub fn parse_parent_file(body: &str) -> anyhow::Result<Vec<(Option<String>, PathBuf)>> {
+    many1(preceded(
+        many0(preceded(multispace0, parse::comment_line)), // comment or blank line
+        alt((
+            map(
+                preceded(
+                    multispace0,
+                    separated_pair(is_not(": \n"), tag(":"), is_not(" \n")),
+                ), // absolute path
+                |(r, p)| (Some(String::from(r)), PathBuf::from(p)),
+            ),
+            map(preceded(multispace0, is_not(" \n")), |v| {
+                (None, PathBuf::from(v))
+            }),
+        )),
+    ))(body)
+    .finish()
+    .map(|(_, v): (&str, Vec<(Option<String>, PathBuf)>)| v)
+    .map_err(|_| anyhow::anyhow!("parser's busted :("))
 }
 
 /// Parse layout.conf and return only the overlay's name for now.
@@ -40,7 +63,8 @@ pub fn parse_layout_conf(body: &str) -> anyhow::Result<&str> {
 mod tests {
     use super::*;
 
-    const SAMPLE: &str = "..
+    const SAMPLE: &str = "# This is a comment.
+..
 ../../../../../targets/sdk
 chromiumos:features/llvm
 
@@ -56,9 +80,9 @@ use-manifests = strict
 ";
 
     #[test]
-    fn test_parent_regex() {
+    fn test_parent_file_parse() {
         assert_eq!(
-            parse_parent_file(SAMPLE),
+            parse_parent_file(SAMPLE).unwrap(),
             vec![
                 (None, PathBuf::from("..")),
                 (None, PathBuf::from("../../../../../targets/sdk")),
@@ -68,6 +92,27 @@ use-manifests = strict
                 )
             ]
         );
+    }
+
+    const NO_LINEFEED: &str = "chromiumos:features/selinux";
+
+    #[test]
+    fn test_no_linefeed_parent_file_parse() {
+        assert_eq!(
+            parse_parent_file(NO_LINEFEED).unwrap(),
+            vec![(
+                Some("chromiumos".to_owned()),
+                PathBuf::from("features/selinux")
+            ),]
+        )
+    }
+
+    #[test]
+    fn test_tiny_no_linefeed_parent_file_parse() {
+        assert_eq!(
+            parse_parent_file("..").unwrap(),
+            vec![(None, PathBuf::from("..")),]
+        )
     }
 
     #[test]

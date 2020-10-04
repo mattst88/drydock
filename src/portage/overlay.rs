@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,34 +6,115 @@ use std::sync::{Arc, Mutex};
 
 use crate::parse;
 
-use super::Profile;
+use super::{Profile, ProfileKey};
 
-use anyhow;
+use anyhow::{self, Context};
 use ignore::{self, DirEntry, WalkState};
 
 #[derive(Debug, Hash, Eq, PartialEq, Clone)]
 pub struct Overlay {
     pub name: String,
     pub path: PathBuf,
+    pub profiles: BTreeMap<String, Profile>,
 }
 
 impl Overlay {
     pub fn new(name: String, path: PathBuf) -> Self {
-        Self { name, path }
+        Self {
+            name,
+            path,
+            profiles: BTreeMap::new(),
+        }
     }
 
-    pub fn profiles_root(&self) -> PathBuf {
+    fn profiles_root(&self) -> PathBuf {
         self.path.join("profiles")
     }
 
-    pub fn profile_from(&self, rel_path: PathBuf) -> anyhow::Result<Profile<'_>> {
-        let rough_path = self.profiles_root().join(rel_path);
-        let canon_path = rough_path.canonicalize()?;
-        let canon_relative_path = canon_path.strip_prefix(self.profiles_root())?.to_owned();
-        Ok(Profile {
-            overlay: &self,
-            rel_path: canon_relative_path,
-        })
+    pub fn key_for(&self, profile_name: &str) -> Option<ProfileKey> {
+        self.profiles
+            .get(profile_name)
+            .map(|p| ProfileKey::new(&self.name, &p.name))
+    }
+
+    fn parse_profiles(&mut self) -> anyhow::Result<()> {
+        let profile_dir = self.profiles_root();
+
+        if !profile_dir.is_dir() {
+            return Ok(());
+        }
+
+        let walker = walkdir::WalkDir::new(&profile_dir).min_depth(0);
+
+        for entry in walker
+            .into_iter()
+            .filter_entry(|e| e.path().is_dir())
+            .filter_map(|e| e.ok())
+        {
+            let profile_name = String::from(
+                entry
+                    .path()
+                    .strip_prefix(&profile_dir)
+                    .with_context(|| {
+                        format!(
+                            "In overlay {}, exploring path {:?}",
+                            &self.name,
+                            entry.path()
+                        )
+                    })?
+                    .to_string_lossy(),
+            );
+
+            let mut profile = Profile::new(&profile_name);
+
+            'parent: for parent in Profile::parse_parents(entry.path()).unwrap_or_default() {
+                match parent {
+                    (Some(overlay), name) => profile
+                        .parents
+                        .push(ProfileKey::new(overlay, name.to_string_lossy())),
+                    (None, rel_path) => {
+                        let parent_path = match entry
+                            .path()
+                            .join(&rel_path)
+                            .canonicalize()
+                            .with_context(|| {
+                                format!(
+                                    "Relative path {:?} from {}:{} does not exist!",
+                                    &rel_path, &self.name, &profile.name
+                                )
+                            }) {
+                            Ok(p) => p,
+                            Err(e) => {
+                                eprintln!(
+                                    "Malformed profile found at {:?}\n\tProblem: {}",
+                                    entry.path(),
+                                    e
+                                );
+                                continue 'parent;
+                            }
+                        };
+
+                        let parent_name = parent_path
+                            .strip_prefix(self.profiles_root())
+                            .with_context(|| {
+                                format!(
+                                    "Tried to get relative path from: {:?}\n to {:?}",
+                                    &parent_path,
+                                    entry.path()
+                                )
+                            })?
+                            .to_string_lossy();
+                        profile
+                            .parents
+                            .push(ProfileKey::new(&self.name, parent_name))
+                    }
+                }
+            }
+
+            self.profiles.insert(profile_name, profile);
+        }
+
+        Ok(())
     }
 }
 
@@ -44,14 +125,16 @@ impl TryFrom<&Path> for Overlay {
         let metadata_path = value.join("metadata/layout.conf");
         let layout_body = fs::read_to_string(&metadata_path)?;
         let repo_name = parse::parse_layout_conf(&layout_body)?;
-        Ok(Overlay::new(repo_name.into(), value.into()))
+        let mut overlay = Overlay::new(repo_name.into(), value.into());
+        overlay.parse_profiles()?;
+        Ok(overlay)
     }
 }
 
-pub fn build_overlay_map(config: &config::Config) -> HashMap<String, Overlay> {
+pub fn build_overlay_map(config: &config::Config) -> OverlayTable {
     let mut walker = ignore::WalkBuilder::new(".");
     walker.filter_entry(|dir| dir.path().is_dir());
-    walker.max_depth(Some(3));
+    walker.max_depth(Some(1));
 
     for overlay_path in config.get_array("overlay_paths").unwrap() {
         let p = overlay_path.into_str().unwrap();
@@ -64,7 +147,7 @@ pub fn build_overlay_map(config: &config::Config) -> HashMap<String, Overlay> {
 
     walker.visit(&mut table);
 
-    OverlayTable::from(table).map
+    OverlayTable::from(table)
 }
 
 #[derive(Debug)]
@@ -126,11 +209,12 @@ impl Drop for OverlayTablePiece {
 impl ignore::ParallelVisitor for OverlayTablePiece {
     fn visit(&mut self, entry: Result<DirEntry, ignore::Error>) -> WalkState {
         if let Ok(dir) = entry {
-            if let Ok(overlay) = Overlay::try_from(dir.path()) {
-                self.map.insert(overlay.name.clone(), overlay);
-                WalkState::Skip
-            } else {
-                WalkState::Continue
+            match Overlay::try_from(dir.path()) {
+                Ok(overlay) => {
+                    self.map.insert(overlay.name.clone(), overlay);
+                    WalkState::Skip
+                }
+                Err(_) => WalkState::Continue,
             }
         } else {
             WalkState::Continue
