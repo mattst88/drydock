@@ -6,13 +6,13 @@ use std::sync::Arc;
 
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag},
-    character::complete::{self, multispace0, multispace1, one_of, satisfy},
+    bytes::complete::{is_not, tag, take_till},
+    character::complete::{self, multispace0, multispace1, one_of, satisfy, none_of},
     character::{is_alphabetic, is_alphanumeric},
-    combinator::{map, recognize},
+    combinator::{map, not, recognize},
     multi::{self, many0, many1},
     sequence::{pair, preceded, terminated, tuple},
-    IResult,
+    IResult, Parser,
 };
 
 static INCREMENTAL_VARIABLES: &[&str] = &[
@@ -65,6 +65,12 @@ struct RVal<'a> {
     vals: Vec<Arc<Value<'a>>>,
 }
 
+impl<'a> RVal<'a> {
+    pub fn new(vals: Vec<Arc<Value<'a>>>) -> Self {
+        Self { vals }
+    }
+}
+
 impl<'a> fmt::Display for RVal<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for val in self.vals.iter() {
@@ -105,11 +111,12 @@ fn assignment<'a, 'b>(
     prior_asn: &'b HashMap<&'a str, RVal<'a>>,
 ) -> IResult<&'a str, (&'a str, RVal<'a>)> {
     let quoted_rval_parser = |i| quoted_rval(i, prior_asn);
+    let unquoted_rval_parser = |i| unquoted_rval(i, prior_asn);
     preceded(
         multispace0,
         tuple((
             terminated(variable, preceded(multispace0, tag("="))),
-            preceded(multispace0, quoted_rval_parser),
+            alt((preceded(multispace0, quoted_rval_parser), unquoted_rval_parser)),
         )),
     )(input)
 }
@@ -133,6 +140,34 @@ fn quoted_rval<'a, 'b>(
             tag("\""),
         ),
         |vals| RVal { vals },
+    )(input)
+}
+
+fn unquoted_rval<'a, 'b>(
+    input: &'a str,
+    prior_asgn: &'b HashMap<&'a str, RVal<'a>>,
+) -> IResult<&'a str, RVal<'a>> {
+    map(
+        preceded(
+            multispace0,
+            many0(map(
+                alt((
+                    expansion,
+                    map(is_not(" \t\n"), |v| {
+                        Value::Literal(v)
+                    }),
+                    expansion,
+                )),
+                |v| match v {
+                    v @ Value::Literal { .. } => Arc::new(v),
+                    Value::Expansion { name, .. } => {
+                        let value = prior_asgn.get(name).map(|a| a.vals.clone());
+                        Arc::new(Value::Expansion { name, value })
+                    }
+                },
+            )),
+        ),
+        RVal::new,
     )(input)
 }
 
@@ -376,5 +411,102 @@ LOL="${LOL} ${LOL} ${LOL} ${LOL} ${LOL}"
         let (out, res) = res.unwrap();
         assert_eq!(out, "");
         assert_eq!(res.len(), 13);
+    }
+
+    const BAD_QUOTES_FULL_SAMPLE: &str = r#"# Copyright (c) 2015 The Chromium OS Authors. All rights reserved.
+# Distributed under the terms of the GNU General Public License v2
+
+# Settings that are common to all host sdks.  Do not place any board specific
+# settings in here, or settings for cross-compiled targets.
+#
+# See "man 5 make.conf" and "man 5 portage" for the available options.
+
+# Dummy setting so we can use the same append form below.
+USE=""
+
+# Various global settings.
+USE="${USE} hardened multilib pic pie -introspection -cracklib"
+
+# Custom USE flag ebuilds can use to determine whether it's going into the sdk
+# or into a target board.
+USE="${USE} cros_host"
+
+# Disable all x11 USE flags for packages within chroot.
+USE="${USE} -gtk2 -gtk3 -qt4"
+
+# Enable extended attributes support in our sdk tools.
+USE="${USE} xattr"
+# But disable using them in the sdk itself for now.
+USE="${USE} -filecaps"
+
+# No need to track power in the sdk.
+USE="${USE} -power_management"
+
+# We don't boot things inside the sdk.
+USE="${USE} -openrc"
+
+# Disable vala inside the sdk
+USE="${USE} -vala"
+
+# We only have one rootfs.
+USE="${USE} -split-usr"
+
+# Various runtime features that control emerge behavior.
+# See "man 5 make.conf" for details.
+FEATURES="allow-missing-manifests buildpkg clean-logs -collision-protect
+            -ebuild-locks force-mirror -merge-sync -pid-sandbox
+            parallel-install -preserve-libs sandbox -strict userfetch
+            userpriv usersandbox -unknown-features-warn network-sandbox"
+
+# This is used by profiles/base/profile.bashrc to figure out that we
+# are targeting the cros-sdk (in all its various modes).  It should
+# be utilized nowhere else!
+CROS_SDK_HOST="cros-sdk-host"
+
+# Qemu targets we care about.
+QEMU_SOFTMMU_TARGETS="aarch64 arm i386 mips mips64 mips64el mipsel x86_64"
+QEMU_USER_TARGETS="aarch64 arm i386 mips mips64 mips64el mipsel x86_64"
+
+# Various compiler defaults.  Should be no arch-specific bits here.
+CFLAGS="-O2 -pipe"
+LDFLAGS="-Wl,-O2 -Wl,--as-needed"
+
+# We want to migrate away from this at some point.
+SYMLINK_LIB="yes"
+
+# Default target(s) for python-r1.eclass
+PYTHON_TARGETS="-python2_7 python3_6"
+PYTHON_SINGLE_TARGET="-python2_7 python3_6"
+
+# Use clang as the default compiler.
+CC=x86_64-pc-linux-gnu-clang
+CXX=x86_64-pc-linux-gnu-clang++
+LD=x86_64-pc-linux-gnu-ld.lld
+
+
+    "#;
+
+    #[test]
+    fn test_bad_quotes_full_example_parse() {
+        let res = full_parse(BAD_QUOTES_FULL_SAMPLE);
+        let (out, res) = res.unwrap();
+        assert_eq!(out, "");
+        assert_eq!(res.len(), 13);
+    }
+
+    #[test]
+    fn test_bad_quotes_full_example_eval_unquoted() {
+        let res = full_parse(BAD_QUOTES_FULL_SAMPLE);
+        let (out, res) = res.unwrap();
+        assert_eq!(out, "");
+        assert_eq!(res["CC"].to_string(), "x86_64-pc-linux-gnu-clang");
+    }
+
+    #[test]
+    fn test_bad_quotes_full_example_eval_quoted() {
+        let res = full_parse(BAD_QUOTES_FULL_SAMPLE);
+        let (out, res) = res.unwrap();
+        assert_eq!(out, "");
+        assert_eq!(res["PYTHON_TARGETS"].to_string(), "-python2_7 python3_6");
     }
 }
