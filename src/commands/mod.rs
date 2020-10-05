@@ -3,7 +3,7 @@ use clap::ArgMatches;
 
 use crate::graph;
 use crate::parse;
-use crate::portage::{overlay::build_overlay_map, Overlay, ProfileKey};
+use crate::portage::{overlay::build_overlay_map, ProfileKey};
 
 pub fn parents(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
     let targets = sub_args.values_of("profile").unwrap();

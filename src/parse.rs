@@ -5,12 +5,11 @@ use lazy_static::lazy_static;
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
-    character::complete::{self, multispace0, multispace1, one_of, satisfy},
-    character::{is_alphabetic, is_alphanumeric},
-    combinator::{map, recognize},
-    multi::{self, many0, many1},
-    sequence::{pair, preceded, separated_pair, terminated, tuple},
-    Finish, IResult,
+    character::complete::multispace0,
+    combinator::map,
+    multi::{many0, many1},
+    sequence::{preceded, separated_pair},
+    Finish,
 };
 
 use regex;

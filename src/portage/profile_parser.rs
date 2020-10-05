@@ -7,7 +7,7 @@ use std::sync::Arc;
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take_till},
-    character::complete::{self, multispace0, multispace1, one_of, satisfy, none_of},
+    character::complete::{self, multispace0, multispace1, none_of, one_of, satisfy},
     character::{is_alphabetic, is_alphanumeric},
     combinator::{map, not, recognize},
     multi::{self, many0, many1},
@@ -27,8 +27,10 @@ static INCREMENTAL_VARIABLES: &[&str] = &[
     "ENV_UNSET",
 ];
 
+type ValueMap<'a> = HashMap<&'a str, RVal<'a>>;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Value<'a> {
+pub enum Value<'a> {
     Literal(&'a str),
     Expansion {
         name: &'a str,
@@ -61,12 +63,12 @@ struct Assignment<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct RVal<'a> {
-    vals: Vec<Arc<Value<'a>>>,
+pub struct RVal<'a> {
+    pub vals: Vec<Arc<Value<'a>>>,
 }
 
 impl<'a> RVal<'a> {
-    pub fn new(vals: Vec<Arc<Value<'a>>>) -> Self {
+    fn new(vals: Vec<Arc<Value<'a>>>) -> Self {
         Self { vals }
     }
 }
@@ -80,8 +82,8 @@ impl<'a> fmt::Display for RVal<'a> {
     }
 }
 
-fn full_parse(mut input: &str) -> IResult<&str, HashMap<&str, RVal>> {
-    let mut assignment_map: HashMap<&str, RVal> = HashMap::new();
+pub fn full_parse(mut input: &str) -> IResult<&str, ValueMap> {
+    let mut assignment_map: ValueMap = HashMap::new();
 
     while input != "" {
         if let Ok((new_input, _)) = comment_line(input) {
@@ -116,7 +118,10 @@ fn assignment<'a, 'b>(
         multispace0,
         tuple((
             terminated(variable, preceded(multispace0, tag("="))),
-            alt((preceded(multispace0, quoted_rval_parser), unquoted_rval_parser)),
+            alt((
+                preceded(multispace0, quoted_rval_parser),
+                unquoted_rval_parser,
+            )),
         )),
     )(input)
 }
@@ -153,9 +158,7 @@ fn unquoted_rval<'a, 'b>(
             many0(map(
                 alt((
                     expansion,
-                    map(is_not(" \t\n"), |v| {
-                        Value::Literal(v)
-                    }),
+                    map(is_not(" \t\n"), |v| Value::Literal(v)),
                     expansion,
                 )),
                 |v| match v {
