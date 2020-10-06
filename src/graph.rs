@@ -37,7 +37,10 @@ pub fn dump_graphviz(table: &OverlayTable, roots: &[ProfileKey]) {
             eprintln!("{} : {}", key.overlay(), key.profile());
             let mut keys: Vec<String> = table.map.keys().cloned().collect();
             keys.sort();
-            panic!("Missing an overlay!\n Requested: {:?}\n", key);
+            panic!(
+                "Missing an overlay!\n Requested: {:?}\nVisited: {:?}\nKeys: {:?}",
+                key, visited, keys
+            );
         }
     }
 

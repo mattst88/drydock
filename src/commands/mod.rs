@@ -11,7 +11,7 @@ pub fn parents(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result
         .flat_map(|target| parse::parse_parent_file(&target))
         .collect();
 
-    let overlay_table = build_overlay_map(&config);
+    let overlay_table = build_overlay_map(&config)?;
 
     let start_profiles: Vec<ProfileKey> = targets
         .into_iter()
@@ -28,6 +28,22 @@ pub fn parents(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result
         graph::dump_graphviz(&overlay_table, &start_profiles);
     }
 
+    Ok(())
+}
+
+pub fn eval(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
+    let target = sub_args.value_of("profile").unwrap();
+    let profile = parse::parse_parent_file(&target)
+        .unwrap()
+        .into_iter()
+        .map(|(o, p)| ProfileKey::new(o.unwrap(), p.to_string_lossy()))
+        .next()
+        .unwrap();
+
+    let target_var = sub_args.value_of("variable").unwrap();
+    let overlay_table = build_overlay_map(&config)?;
+
+    println!("{}", overlay_table.get_var(&profile, target_var)?);
     Ok(())
 }
 

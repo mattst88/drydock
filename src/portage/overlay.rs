@@ -1,3 +1,4 @@
+
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
 use std::fs;
@@ -11,7 +12,7 @@ use super::{Profile, ProfileKey};
 use anyhow::{self, Context};
 use ignore::{self, DirEntry, WalkState};
 
-#[derive(Debug, Hash, Eq, PartialEq, Clone)]
+#[derive(Debug, Hash, Eq, PartialEq)]
 pub struct Overlay {
     pub name: String,
     pub path: PathBuf,
@@ -65,9 +66,9 @@ impl Overlay {
                     .to_string_lossy(),
             );
 
-            let mut profile = Profile::new(&profile_name);
+            let mut profile = Profile::new(&profile_name, entry.path().into());
 
-            'parent: for parent in Profile::parse_parents(entry.path()).unwrap_or_default() {
+            for parent in Profile::parse_parents(entry.path()).unwrap_or_default() {
                 match parent {
                     (Some(overlay), name) => profile
                         .parents
@@ -90,7 +91,7 @@ impl Overlay {
                                     entry.path(),
                                     e
                                 );
-                                continue 'parent;
+                                continue;
                             }
                         };
 
@@ -125,13 +126,12 @@ impl TryFrom<&Path> for Overlay {
         let metadata_path = value.join("metadata/layout.conf");
         let layout_body = fs::read_to_string(&metadata_path)?;
         let repo_name = parse::parse_layout_conf(&layout_body)?;
-        let mut overlay = Overlay::new(repo_name.into(), value.into());
-        overlay.parse_profiles()?;
+        let overlay = Overlay::new(repo_name.into(), value.into());
         Ok(overlay)
     }
 }
 
-pub fn build_overlay_map(config: &config::Config) -> OverlayTable {
+pub fn build_overlay_map(config: &config::Config) -> anyhow::Result<OverlayTable> {
     let mut walker = ignore::WalkBuilder::new(".");
     walker.filter_entry(|dir| dir.path().is_dir());
     walker.max_depth(Some(1));
@@ -147,7 +147,7 @@ pub fn build_overlay_map(config: &config::Config) -> OverlayTable {
 
     walker.visit(&mut table);
 
-    OverlayTable::from(table)
+    OverlayTable::try_from(table)
 }
 
 #[derive(Debug)]
@@ -161,22 +161,36 @@ impl OverlayTable {
             map: HashMap::new(),
         }
     }
-}
 
-impl From<OverlayTableBuilder> for OverlayTable {
-    fn from(other: OverlayTableBuilder) -> Self {
-        Arc::try_unwrap(other.table).unwrap().into_inner().unwrap()
+    pub fn get_var(&self, key: &ProfileKey, variable: &str) -> anyhow::Result<String> {
+        Ok((&self.map[key.overlay()].profiles[key.profile()].conf)
+            .as_ref()
+            .unwrap()
+            .rent(|s| s[variable].to_string()))
     }
 }
+
+impl TryFrom<OverlayTableBuilder> for OverlayTable {
+    type Error = anyhow::Error;
+    fn try_from(other: OverlayTableBuilder) -> Result<Self, Self::Error> {
+        for err in Arc::try_unwrap(other.errs).unwrap().into_inner().unwrap() {
+            return Err(err);
+        }
+        Ok(Arc::try_unwrap(other.table).unwrap().into_inner()?)
+    }
+}
+
 #[derive(Debug)]
 pub struct OverlayTableBuilder {
     table: Arc<Mutex<OverlayTable>>,
+    errs: Arc<Mutex<Vec<anyhow::Error>>>,
 }
 
 impl OverlayTableBuilder {
     pub fn new() -> Self {
         Self {
             table: Arc::new(Mutex::new(OverlayTable::new())),
+            errs: Arc::new(Mutex::new(Default::default())),
         }
     }
 }
@@ -186,6 +200,8 @@ impl<'s> ignore::ParallelVisitorBuilder<'s> for OverlayTableBuilder {
         Box::new(OverlayTablePiece {
             table: Arc::clone(&self.table),
             map: HashMap::new(),
+            errs: Arc::clone(&self.errs),
+            local_errs: Default::default(),
         })
     }
 }
@@ -193,7 +209,9 @@ impl<'s> ignore::ParallelVisitorBuilder<'s> for OverlayTableBuilder {
 #[derive(Debug)]
 pub struct OverlayTablePiece {
     table: Arc<Mutex<OverlayTable>>,
+    errs: Arc<Mutex<Vec<anyhow::Error>>>,
     map: HashMap<String, Overlay>,
+    local_errs: Vec<anyhow::Error>,
 }
 
 impl Drop for OverlayTablePiece {
@@ -203,6 +221,12 @@ impl Drop for OverlayTablePiece {
         for (k, v) in map {
             table.map.insert(k, v);
         }
+
+        let mut errs = self.errs.lock().unwrap();
+        let local_errs = std::mem::replace(&mut self.local_errs, Default::default());
+        for e in local_errs {
+            errs.push(e);
+        }
     }
 }
 
@@ -210,10 +234,34 @@ impl ignore::ParallelVisitor for OverlayTablePiece {
     fn visit(&mut self, entry: Result<DirEntry, ignore::Error>) -> WalkState {
         if let Ok(dir) = entry {
             match Overlay::try_from(dir.path()) {
-                Ok(overlay) => {
-                    self.map.insert(overlay.name.clone(), overlay);
-                    WalkState::Skip
-                }
+                Ok(mut overlay) => match overlay
+                    .parse_profiles()
+                    .with_context(|| format!("Failed while parsing profiles of {}", &overlay.name))
+                {
+                    Ok(_) => {
+                        for p in overlay.profiles.values_mut() {
+                            match p.parse_conf().with_context(|| {
+                                format!(
+                                    "Failed while parsing {:?}:{} conf!",
+                                    dir.path().components().last().unwrap(),
+                                    p.name
+                                )
+                            }) {
+                                Ok(_) => continue,
+                                Err(e) => {
+                                    self.local_errs.push(e);
+                                    return WalkState::Quit;
+                                }
+                            }
+                        }
+                        self.map.insert(overlay.name.clone(), overlay);
+                        WalkState::Skip
+                    }
+                    Err(e) => {
+                        self.local_errs.push(e);
+                        return WalkState::Quit;
+                    }
+                },
                 Err(_) => WalkState::Continue,
             }
         } else {

@@ -4,6 +4,8 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::Arc;
 
+use anyhow::anyhow;
+
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take_till},
@@ -27,7 +29,7 @@ static INCREMENTAL_VARIABLES: &[&str] = &[
     "ENV_UNSET",
 ];
 
-type ValueMap<'a> = HashMap<&'a str, RVal<'a>>;
+pub type ValueMap<'a> = HashMap<&'a str, RVal<'a>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value<'a> {
@@ -37,6 +39,7 @@ pub enum Value<'a> {
         value: Option<Vec<Arc<Value<'a>>>>,
     },
 }
+
 
 impl<'a> fmt::Display for Value<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -82,7 +85,7 @@ impl<'a> fmt::Display for RVal<'a> {
     }
 }
 
-pub fn full_parse(mut input: &str) -> IResult<&str, ValueMap> {
+pub fn full_parse(mut input: &str) -> anyhow::Result<ValueMap> {
     let mut assignment_map: ValueMap = HashMap::new();
 
     while input != "" {
@@ -92,12 +95,13 @@ pub fn full_parse(mut input: &str) -> IResult<&str, ValueMap> {
             assignment_map.insert(lval, rval);
             input = new_input;
         } else {
-            let (new, _) = multispace1(input)?;
+            let (new, _) = multispace1::<&str, nom::error::Error<&str>>(input)
+                .map_err(|e| anyhow!(e.to_string()))?;
             input = new;
         }
     }
 
-    Ok((input, assignment_map))
+    Ok(assignment_map)
 }
 
 pub fn comment_line(input: &str) -> IResult<&str, &str> {
@@ -108,7 +112,7 @@ fn multi_line(input: &str) -> IResult<&str, Vec<&str>> {
     multi::many1(preceded(complete::multispace0, comment_line))(input)
 }
 
-fn assignment<'a, 'b>(
+fn assignment<'a: 'b, 'b>(
     input: &'a str,
     prior_asn: &'b HashMap<&'a str, RVal<'a>>,
 ) -> IResult<&'a str, (&'a str, RVal<'a>)> {
@@ -341,7 +345,7 @@ USE="${USE} bar"
     #[test]
     fn test_multi_assignment_parse() {
         let res = full_parse(MULTI_ASSIGN);
-        let (out, res) = res.unwrap();
+        let res = res.unwrap();
         let mut expected = HashMap::new();
         expected.insert(
             "USE",
@@ -356,15 +360,12 @@ USE="${USE} bar"
             },
         );
         assert_eq!(res, expected);
-
-        assert_eq!(out, "");
     }
 
     #[test]
     fn test_multi_assign_evaluation() {
         let res = full_parse(MULTI_ASSIGN);
-        let (out, res) = res.unwrap();
-        assert_eq!(out, "");
+        let res = res.unwrap();
         assert_eq!("foo bar", format!("{}", res["USE"]));
     }
 
@@ -384,8 +385,7 @@ USE="${USE} bar"
     #[test]
     fn test_many_assign_evaluation() {
         let res = full_parse(MANY_ASSIGN);
-        let (out, res) = res.unwrap();
-        assert_eq!(out, "");
+        let res = res.unwrap();
         assert_eq!(
             "foo bar bar bar bar bar bar bar bar bar",
             format!("{}", res["USE"])
@@ -403,16 +403,14 @@ LOL="${LOL} ${LOL} ${LOL} ${LOL} ${LOL}"
     #[test]
     fn test_25_laughs_evaluation() {
         let res = full_parse(TWENTY_FIVE_LAUGHS);
-        let (out, res) = res.unwrap();
-        assert_eq!(out, "");
+        let res = res.unwrap();
         assert_eq!(format!("{}", res["LOL"]), TWENTY_FIVE_LAUGHS_EXPANDED);
     }
 
     #[test]
     fn test_full_example_parse() {
         let res = full_parse(FULL_SAMPLE);
-        let (out, res) = res.unwrap();
-        assert_eq!(out, "");
+        let res = res.unwrap();
         assert_eq!(res.len(), 13);
     }
 
@@ -492,24 +490,21 @@ LD=x86_64-pc-linux-gnu-ld.lld
     #[test]
     fn test_bad_quotes_full_example_parse() {
         let res = full_parse(BAD_QUOTES_FULL_SAMPLE);
-        let (out, res) = res.unwrap();
-        assert_eq!(out, "");
+        let res = res.unwrap();
         assert_eq!(res.len(), 13);
     }
 
     #[test]
     fn test_bad_quotes_full_example_eval_unquoted() {
         let res = full_parse(BAD_QUOTES_FULL_SAMPLE);
-        let (out, res) = res.unwrap();
-        assert_eq!(out, "");
+        let res = res.unwrap();
         assert_eq!(res["CC"].to_string(), "x86_64-pc-linux-gnu-clang");
     }
 
     #[test]
     fn test_bad_quotes_full_example_eval_quoted() {
         let res = full_parse(BAD_QUOTES_FULL_SAMPLE);
-        let (out, res) = res.unwrap();
-        assert_eq!(out, "");
+        let res = res.unwrap();
         assert_eq!(res["PYTHON_TARGETS"].to_string(), "-python2_7 python3_6");
     }
 }

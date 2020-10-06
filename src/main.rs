@@ -9,6 +9,9 @@ use anyhow;
 use clap::{App, Arg, SubCommand};
 use config;
 
+#[macro_use]
+extern crate rental;
+
 fn main() -> anyhow::Result<()> {
     let config_path = env::var("XDG_CONFIG_HOME").unwrap_or(env::var("HOME").unwrap() + "/.config")
         + "/drydock/config.toml";
@@ -41,11 +44,33 @@ fn main() -> anyhow::Result<()> {
                         .help("Print graphviz dot formatting for the profile parent structure."),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("eval")
+                .about("Print the final value of a config variable for a profile.")
+                .arg(
+                    Arg::with_name("profile")
+                        .short("p")
+                        .long("profile")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The target profile to query."),
+                )
+                .arg(
+                    Arg::with_name("variable")
+                        .takes_value(true)
+                        .required(true)
+                        .multiple(false),
+                ),
+        )
         .get_matches();
 
     if let Some(sub_args) = args.subcommand_matches("parents") {
-        commands::parents(&config, sub_args)
-    } else {
-        unimplemented!()
+        commands::parents(&config, sub_args)?;
+    };
+
+    if let Some(sub_args) = args.subcommand_matches("eval") {
+        commands::eval(&config, sub_args)?;
     }
+
+    Ok(())
 }
