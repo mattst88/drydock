@@ -1,15 +1,15 @@
-
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use crate::parse;
-
 use super::{Profile, ProfileKey};
+use crate::parse;
+use crate::portage::profile::{MuncherState, ValueMuncher};
+use crate::portage::profile_parser::RVal;
 
-use anyhow::{self, Context};
+use anyhow::{Context, bail, anyhow};
 use ignore::{self, DirEntry, WalkState};
 
 #[derive(Debug, Hash, Eq, PartialEq)]
@@ -45,7 +45,7 @@ impl Overlay {
             return Ok(());
         }
 
-        let walker = walkdir::WalkDir::new(&profile_dir).min_depth(0);
+        let walker = walkdir::WalkDir::new(&profile_dir).min_depth(1);
 
         for entry in walker
             .into_iter()
@@ -162,11 +162,73 @@ impl OverlayTable {
         }
     }
 
-    pub fn get_var(&self, key: &ProfileKey, variable: &str) -> anyhow::Result<String> {
-        Ok((&self.map[key.overlay()].profiles[key.profile()].conf)
+    pub fn get(&self, key: &ProfileKey) -> Option<&Profile> {
+        self.map
+            .get(key.overlay())
+            .map(|o| o.profiles.get(key.profile()))
+            .flatten()
+    }
+
+    pub fn var(&self, key: &ProfileKey, variable: &str) -> anyhow::Result<String> {
+        let mut muncher = ValueMuncher::new();
+        let (vals, k) = self.get_highest_visible_var_definition(key, variable)?;
+        match muncher.feed(vals, k) {
+            MuncherState::Done(tokens) => return Ok(tokens.join("")),
+            MuncherState::Need((var, profile)) => {
+                (var, profile);
+                Ok(self.get_needed_var(profile, var, &mut muncher)?)
+            }
+        }
+    }
+
+    fn get_needed_var<'a, 'b: 'a>(
+        &'b self,
+        key: &'a ProfileKey,
+        variable: &'a str,
+        muncher: &'b mut ValueMuncher<'a>,
+    ) -> anyhow::Result<String> {
+        let top_profile = self.get(key).unwrap();
+        let (found, source) = top_profile.parents.iter().rev().find_map(|parent_key| {
+            self.get_highest_visible_var_definition(parent_key, variable)
+                .ok()
+        }).unwrap();
+        match muncher.feed(found, source) {
+            MuncherState::Done(tokens) => return Ok(tokens.join("")),
+            MuncherState::Need((var, profile)) => {
+                Ok(self.get_needed_var(profile, var, muncher)?)
+            }
+        }
+    }
+
+    fn get_highest_visible_var_definition<'a, 'b: 'a>(
+        &'b self,
+        key: &'a ProfileKey,
+        variable: &'b str,
+    ) -> anyhow::Result<(RVal<'b>, &'a ProfileKey)> {
+        let current_profile = match self.get(key) {
+            Some(p) => p,
+            None => bail!("Couldn't find a matching profile for key {:?} while searching for var: {}", key, variable)
+        };
+
+        if let Some(rval) = current_profile
+            .conf
             .as_ref()
             .unwrap()
-            .rent(|s| s[variable].to_string()))
+            .suffix()
+            .get(variable)
+        {
+            Ok((rval.clone(), key))
+        } else {
+            current_profile
+                .parents
+                .iter()
+                .rev()
+                .find_map(|parent_key| {
+                    self.get_highest_visible_var_definition(parent_key, variable)
+                        .ok()
+                }).ok_or(anyhow!("Couldn't find ANY value for variable: {}", variable))
+                
+        }
     }
 }
 

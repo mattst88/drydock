@@ -4,9 +4,7 @@ use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 
 use crate::parse;
-use crate::portage::profile_parser::{full_parse, ValueMap};
-
-use anyhow::{anyhow, Context};
+use crate::portage::profile_parser::{full_parse, RVal, Value, ValueMap};
 
 const PARENT_FILE: &'static str = "parent";
 const MAKE_DEFAULTS: &str = "make.defaults";
@@ -15,7 +13,7 @@ rental! {
     mod rentals {
         use super::*;
 
-        #[rental(debug)]
+        #[rental(debug, covariant)]
         pub struct ParsedFile {
             raw: String,
             map: ValueMap<'raw>
@@ -70,7 +68,6 @@ impl Profile {
             }
         }
     }
-
 }
 
 impl Hash for Profile {
@@ -114,4 +111,54 @@ impl ProfileKey {
     pub fn full_name(&self) -> &str {
         self.data.as_str()
     }
+}
+
+pub struct ValueMuncher<'a> {
+    output_tokens: Vec<&'a str>,
+    exploration_stack: Vec<(Value<'a>, &'a ProfileKey)>,
+}
+
+impl<'a> ValueMuncher<'a> {
+    pub fn new() -> Self {
+        Self {
+            output_tokens: Default::default(),
+            exploration_stack: Default::default(),
+        }
+    }
+
+    pub fn feed<'b>(&'b mut self, rval: RVal<'a>, profile: &'a ProfileKey) -> MuncherState<'a> {
+        for val in rval.vals.into_iter().rev() {
+            self.exploration_stack.push((val, profile));
+        }
+
+        self.munch()
+    }
+
+    fn munch<'b>(&'b mut self) -> MuncherState<'a> {
+        loop {
+            match self.exploration_stack.pop() {
+                None => {
+                    return MuncherState::Done(std::mem::replace(
+                        &mut self.output_tokens,
+                        Default::default(),
+                    ))
+                }
+                Some((Value::Literal(a), _)) => self.output_tokens.push(a),
+                Some((Value::Expansion { name, value }, p)) => {
+                    if let Some(vals) = value {
+                        for value in vals.into_iter().rev() {
+                            self.exploration_stack.push((value, p));
+                        }
+                    } else {
+                        return MuncherState::Need((name, p));
+                    }
+                }
+            }
+        }
+    }
+}
+
+pub enum MuncherState<'a> {
+    Need((&'a str, &'a ProfileKey)),
+    Done(Vec<&'a str>),
 }
