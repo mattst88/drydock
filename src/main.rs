@@ -62,8 +62,23 @@ fn main() -> anyhow::Result<()> {
                         .multiple(false),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("dump_debug")
+                .about("Dump debug information for an overlay.")
+                .arg(
+                    Arg::with_name("overlay")
+                        .short("o")
+                        .long("overlay")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The target overlay to query."),
+                )
+        )
         .get_matches();
 
+    if let Some(sub_args) = args.subcommand_matches("dump_debug") {
+        commands::dump_debug(&config, sub_args)?;
+    };
     if let Some(sub_args) = args.subcommand_matches("parents") {
         commands::parents(&config, sub_args)?;
     };

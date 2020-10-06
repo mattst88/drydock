@@ -47,6 +47,13 @@ pub fn eval(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<()
     Ok(())
 }
 
+pub fn dump_debug(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
+    let target = sub_args.value_of("overlay").unwrap();
+    let overlay_table = build_overlay_map(&config)?;
+
+    println!("{:#?}", overlay_table.map[target]);
+    Ok(())
+}
 // fn print_profile_tree<'a>(
 //     depth: usize,
 //     profile: &'a Profile<'a>,
