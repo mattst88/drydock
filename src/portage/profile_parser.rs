@@ -1,23 +1,19 @@
-#![allow(dead_code, unused_imports)]
-
 use std::collections::HashMap;
 use std::fmt;
-use std::sync::Arc;
 
 use anyhow::anyhow;
 
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag, take_till},
-    character::complete::{self, multispace0, multispace1, none_of, one_of, satisfy},
-    character::{is_alphabetic, is_alphanumeric},
-    combinator::{map, not, recognize},
-    multi::{self, many0, many1},
-    sequence::{pair, preceded, terminated, tuple},
-    IResult, Parser,
+    bytes::complete::{is_not, tag},
+    character::complete::{self, multispace0, multispace1, satisfy},
+    combinator::{map, recognize},
+    multi::many0,
+    sequence::{preceded, terminated, tuple},
+    IResult,
 };
 
-static INCREMENTAL_VARIABLES: &[&str] = &[
+static _INCREMENTAL_VARIABLES: &[&str] = &[
     "USE",
     "USE_EXPAND",
     "USE_EXPAND_HIDDEN",
@@ -36,10 +32,9 @@ pub enum Value<'a> {
     Literal(&'a str),
     Expansion {
         name: &'a str,
-        value: Option<Vec<Arc<Value<'a>>>>,
+        value: Option<Vec<Value<'a>>>,
     },
 }
-
 
 impl<'a> fmt::Display for Value<'a> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
@@ -60,18 +55,12 @@ impl<'a> fmt::Display for Value<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct Assignment<'a> {
-    lval: &'a str,
-    rval: Vec<Arc<Value<'a>>>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RVal<'a> {
-    pub vals: Vec<Arc<Value<'a>>>,
+    pub vals: Vec<Value<'a>>,
 }
 
 impl<'a> RVal<'a> {
-    fn new(vals: Vec<Arc<Value<'a>>>) -> Self {
+    fn new(vals: Vec<Value<'a>>) -> Self {
         Self { vals }
     }
 }
@@ -108,10 +97,6 @@ pub fn comment_line(input: &str) -> IResult<&str, &str> {
     recognize(preceded(complete::char('#'), complete::not_line_ending))(input)
 }
 
-fn multi_line(input: &str) -> IResult<&str, Vec<&str>> {
-    multi::many1(preceded(complete::multispace0, comment_line))(input)
-}
-
 fn assignment<'a: 'b, 'b>(
     input: &'a str,
     prior_asn: &'b HashMap<&'a str, RVal<'a>>,
@@ -139,10 +124,10 @@ fn quoted_rval<'a, 'b>(
             preceded(
                 tag("\""),
                 many0(map(alt((literal, expansion)), |v| match v {
-                    v @ Value::Literal { .. } => Arc::new(v),
+                    v @ Value::Literal { .. } => v,
                     Value::Expansion { name, .. } => {
                         let value = prior_asgn.get(name).map(|a| a.vals.clone());
-                        Arc::new(Value::Expansion { name, value })
+                        Value::Expansion { name, value }
                     }
                 })),
             ),
@@ -166,10 +151,10 @@ fn unquoted_rval<'a, 'b>(
                     expansion,
                 )),
                 |v| match v {
-                    v @ Value::Literal { .. } => Arc::new(v),
+                    v @ Value::Literal { .. } => v,
                     Value::Expansion { name, .. } => {
                         let value = prior_asgn.get(name).map(|a| a.vals.clone());
-                        Arc::new(Value::Expansion { name, value })
+                        Value::Expansion { name, value }
                     }
                 },
             )),
@@ -293,24 +278,6 @@ LD="x86_64-pc-linux-gnu-ld.lld"
         );
     }
 
-    #[test]
-    fn test_multi_comment_parse() {
-        let res = multi_line(FULL_SAMPLE);
-        let (_, capture) = res.unwrap();
-        assert_eq!(
-            capture,
-            vec![
-                "# Copyright (c) 2015 The Chromium OS Authors. All rights reserved.",
-                "# Distributed under the terms of the GNU General Public License v2",
-                "# Settings that are common to all host sdks.  Do not place any board specific",
-                "# settings in here, or settings for cross-compiled targets.",
-                "#",
-                r#"# See "man 5 make.conf" and "man 5 portage" for the available options."#,
-                "# Dummy setting so we can use the same append form below."
-            ]
-        );
-    }
-
     const ASSIGN: &str = r#"USE="${USE} hardened multilib pic pie -introspection -cracklib""#;
     #[test]
     fn test_single_assignment_parse() {
@@ -322,13 +289,11 @@ LD="x86_64-pc-linux-gnu-ld.lld"
                 "USE",
                 RVal {
                     vals: vec![
-                        Arc::new(Value::Expansion {
+                        Value::Expansion {
                             name: "USE",
                             value: None
-                        }),
-                        Arc::new(Value::Literal(
-                            " hardened multilib pic pie -introspection -cracklib"
-                        ))
+                        },
+                        Value::Literal(" hardened multilib pic pie -introspection -cracklib")
                     ]
                 }
             ),
@@ -351,11 +316,11 @@ USE="${USE} bar"
             "USE",
             RVal {
                 vals: vec![
-                    Arc::new(Value::Expansion {
+                    Value::Expansion {
                         name: "USE",
-                        value: Some(vec![Arc::new(Value::Literal("foo"))]),
-                    }),
-                    Arc::new(Value::Literal(" bar")),
+                        value: Some(vec![Value::Literal("foo")]),
+                    },
+                    Value::Literal(" bar"),
                 ],
             },
         );
