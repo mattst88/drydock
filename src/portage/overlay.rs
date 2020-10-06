@@ -9,7 +9,7 @@ use crate::parse;
 use crate::portage::profile::{MuncherState, ValueMuncher};
 use crate::portage::profile_parser::RVal;
 
-use anyhow::{Context, bail, anyhow};
+use anyhow::{anyhow, bail, Context};
 use ignore::{self, DirEntry, WalkState};
 
 #[derive(Debug, Hash, Eq, PartialEq)]
@@ -188,15 +188,18 @@ impl OverlayTable {
         muncher: &'b mut ValueMuncher<'a>,
     ) -> anyhow::Result<String> {
         let top_profile = self.get(key).unwrap();
-        let (found, source) = top_profile.parents.iter().rev().find_map(|parent_key| {
-            self.get_highest_visible_var_definition(parent_key, variable)
-                .ok()
-        }).unwrap();
+        let (found, source) = top_profile
+            .parents
+            .iter()
+            .rev()
+            .find_map(|parent_key| {
+                self.get_highest_visible_var_definition(parent_key, variable)
+                    .ok()
+            })
+            .unwrap();
         match muncher.feed(found, source) {
             MuncherState::Done(tokens) => return Ok(tokens.join("")),
-            MuncherState::Need((var, profile)) => {
-                Ok(self.get_needed_var(profile, var, muncher)?)
-            }
+            MuncherState::Need((var, profile)) => Ok(self.get_needed_var(profile, var, muncher)?),
         }
     }
 
@@ -207,7 +210,11 @@ impl OverlayTable {
     ) -> anyhow::Result<(RVal<'b>, &'a ProfileKey)> {
         let current_profile = match self.get(key) {
             Some(p) => p,
-            None => bail!("Couldn't find a matching profile for key {:?} while searching for var: {}", key, variable)
+            None => bail!(
+                "Couldn't find a matching profile for key {:?} while searching for var: {}",
+                key,
+                variable
+            ),
         };
 
         if let Some(rval) = current_profile
@@ -226,8 +233,11 @@ impl OverlayTable {
                 .find_map(|parent_key| {
                     self.get_highest_visible_var_definition(parent_key, variable)
                         .ok()
-                }).ok_or(anyhow!("Couldn't find ANY value for variable: {}", variable))
-                
+                })
+                .ok_or(anyhow!(
+                    "Couldn't find ANY value for variable: {}",
+                    variable
+                ))
         }
     }
 }

@@ -72,7 +72,7 @@ fn main() -> anyhow::Result<()> {
                         .takes_value(true)
                         .required(true)
                         .help("The target overlay to query."),
-                )
+                ),
         )
         .get_matches();
 
