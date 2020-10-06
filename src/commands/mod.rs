@@ -1,4 +1,3 @@
-use anyhow;
 use clap::ArgMatches;
 
 use crate::graph;

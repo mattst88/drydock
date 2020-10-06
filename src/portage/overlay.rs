@@ -32,6 +32,7 @@ impl Overlay {
         self.path.join("profiles")
     }
 
+    #[allow(dead_code)]
     pub fn key_for(&self, profile_name: &str) -> Option<ProfileKey> {
         self.profiles
             .get(profile_name)
@@ -173,9 +174,8 @@ impl OverlayTable {
         let mut muncher = ValueMuncher::new();
         let (vals, k) = self.get_highest_visible_var_definition(key, variable)?;
         match muncher.feed(vals, k) {
-            MuncherState::Done(tokens) => return Ok(tokens.join("")),
+            MuncherState::Done(tokens) => Ok(tokens.join("")),
             MuncherState::Need((var, profile)) => {
-                (var, profile);
                 Ok(self.get_needed_var(profile, var, &mut muncher)?)
             }
         }
@@ -198,7 +198,7 @@ impl OverlayTable {
             })
             .unwrap();
         match muncher.feed(found, source) {
-            MuncherState::Done(tokens) => return Ok(tokens.join("")),
+            MuncherState::Done(tokens) => Ok(tokens.join("")),
             MuncherState::Need((var, profile)) => Ok(self.get_needed_var(profile, var, muncher)?),
         }
     }
@@ -234,10 +234,7 @@ impl OverlayTable {
                     self.get_highest_visible_var_definition(parent_key, variable)
                         .ok()
                 })
-                .ok_or(anyhow!(
-                    "Couldn't find ANY value for variable: {}",
-                    variable
-                ))
+                .ok_or_else(|| anyhow!("Couldn't find ANY value for variable: {}", variable))
         }
     }
 }
@@ -245,8 +242,9 @@ impl OverlayTable {
 impl TryFrom<OverlayTableBuilder> for OverlayTable {
     type Error = anyhow::Error;
     fn try_from(other: OverlayTableBuilder) -> Result<Self, Self::Error> {
-        for err in Arc::try_unwrap(other.errs).unwrap().into_inner().unwrap() {
-            return Err(err);
+        let errs = Arc::try_unwrap(other.errs).unwrap().into_inner().unwrap();
+        if !errs.is_empty() {
+            return Err(errs.into_iter().next().unwrap());
         }
         Ok(Arc::try_unwrap(other.table).unwrap().into_inner()?)
     }
@@ -295,7 +293,7 @@ impl Drop for OverlayTablePiece {
         }
 
         let mut errs = self.errs.lock().unwrap();
-        let local_errs = std::mem::replace(&mut self.local_errs, Default::default());
+        let local_errs = std::mem::take(&mut self.local_errs);
         for e in local_errs {
             errs.push(e);
         }
@@ -331,7 +329,7 @@ impl ignore::ParallelVisitor for OverlayTablePiece {
                     }
                     Err(e) => {
                         self.local_errs.push(e);
-                        return WalkState::Quit;
+                        WalkState::Quit
                     }
                 },
                 Err(_) => WalkState::Continue,

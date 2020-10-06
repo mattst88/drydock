@@ -145,11 +145,7 @@ fn unquoted_rval<'a, 'b>(
         preceded(
             multispace0,
             many0(map(
-                alt((
-                    expansion,
-                    map(is_not(" \t\n"), |v| Value::Literal(v)),
-                    expansion,
-                )),
+                alt((expansion, map(is_not(" \t\n"), Value::Literal), expansion)),
                 |v| match v {
                     v @ Value::Literal { .. } => v,
                     Value::Expansion { name, .. } => {
@@ -164,7 +160,7 @@ fn unquoted_rval<'a, 'b>(
 }
 
 fn literal(input: &str) -> IResult<&str, Value> {
-    map(is_not("$\""), |s| Value::Literal(s))(input)
+    map(is_not("$\""), Value::Literal)(input)
 }
 
 fn variable(input: &str) -> IResult<&str, &str> {

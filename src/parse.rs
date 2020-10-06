@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use anyhow;
 use lazy_static::lazy_static;
 use nom::{
     branch::alt,
@@ -11,8 +10,6 @@ use nom::{
     sequence::{preceded, separated_pair},
     Finish,
 };
-
-use regex;
 
 use crate::portage::profile_parser as parse;
 
@@ -55,7 +52,7 @@ pub fn parse_layout_conf(body: &str) -> anyhow::Result<&str> {
         .map(|m| m.get(1))
         .flatten()
         .map(|m| m.as_str())
-        .ok_or(anyhow::anyhow!("problem parsing layout.conf"))
+        .ok_or_else(|| anyhow::anyhow!("problem parsing layout.conf"))
 }
 
 #[cfg(test)]

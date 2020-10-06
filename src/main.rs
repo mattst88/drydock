@@ -5,9 +5,7 @@ mod portage;
 
 use std::env;
 
-use anyhow;
 use clap::{App, Arg, SubCommand};
-use config;
 
 #[macro_use]
 extern crate rental;

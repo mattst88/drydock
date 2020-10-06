@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use crate::parse;
 use crate::portage::profile_parser::{full_parse, RVal, Value, ValueMap};
 
-const PARENT_FILE: &'static str = "parent";
+const PARENT_FILE: &str = "parent";
 const MAKE_DEFAULTS: &str = "make.defaults";
 
 rental! {
@@ -101,11 +101,11 @@ impl ProfileKey {
     }
 
     pub fn overlay(&self) -> &str {
-        self.data.split(":").nth(0).unwrap()
+        self.data.split(':').next().unwrap()
     }
 
     pub fn profile(&self) -> &str {
-        self.data.split(":").nth(1).unwrap()
+        self.data.split(':').nth(1).unwrap()
     }
 
     pub fn full_name(&self) -> &str {
@@ -137,12 +137,7 @@ impl<'a> ValueMuncher<'a> {
     fn munch<'b>(&'b mut self) -> MuncherState<'a> {
         loop {
             match self.exploration_stack.pop() {
-                None => {
-                    return MuncherState::Done(std::mem::replace(
-                        &mut self.output_tokens,
-                        Default::default(),
-                    ))
-                }
+                None => return MuncherState::Done(std::mem::take(&mut self.output_tokens)),
                 Some((Value::Literal(a), _)) => self.output_tokens.push(a),
                 Some((Value::Expansion { name, value }, p)) => {
                     if let Some(vals) = value {
