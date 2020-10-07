@@ -1,4 +1,5 @@
 mod builder;
+mod traversal;
 
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
