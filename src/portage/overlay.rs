@@ -9,7 +9,7 @@ use crate::parse;
 use crate::portage::profile::{MuncherState, ValueMuncher};
 use crate::portage::profile_parser::RVal;
 
-use anyhow::{anyhow, bail, Context};
+use anyhow::{anyhow, Context};
 use ignore::{self, DirEntry, WalkState};
 
 #[derive(Debug, Hash, Eq, PartialEq)]
