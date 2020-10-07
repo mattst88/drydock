@@ -39,6 +39,10 @@ impl Profile {
         }
     }
 
+    pub fn get<S: AsRef<str>>(&self, key: S) -> Option<&RVal> {
+        self.conf.as_ref().unwrap().suffix().get(key.as_ref())
+    }
+
     pub fn parse_parents(profile_path: &Path) -> anyhow::Result<Vec<(Option<String>, PathBuf)>> {
         let file_path = profile_path.join(PARENT_FILE);
         if !file_path.exists() {
@@ -126,8 +130,8 @@ impl<'a> ValueMuncher<'a> {
         }
     }
 
-    pub fn feed<'b>(&'b mut self, rval: RVal<'a>, profile: &'a ProfileKey) -> MuncherState<'a> {
-        for val in rval.vals.into_iter().rev() {
+    pub fn feed<'b>(&'b mut self, rval: &'a RVal<'a>, profile: &'a ProfileKey) -> MuncherState<'a> {
+        for val in rval.vals.clone().into_iter().rev() {
             self.exploration_stack.push((val, profile));
         }
 

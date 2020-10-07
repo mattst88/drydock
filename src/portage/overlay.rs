@@ -170,9 +170,13 @@ impl OverlayTable {
             .flatten()
     }
 
-    pub fn var(&self, key: &ProfileKey, variable: &str) -> anyhow::Result<String> {
+    pub fn compute_flattened_variable(
+        &self,
+        key: &ProfileKey,
+        variable: &str,
+    ) -> anyhow::Result<String> {
         let mut muncher = ValueMuncher::new();
-        let (vals, k) = self.get_highest_visible_var_definition(key, variable)?;
+        let (vals, k) = self.get_variable_with_inheritance(key, variable)?.unwrap();
         match muncher.feed(vals, k) {
             MuncherState::Done(tokens) => Ok(tokens.join("")),
             MuncherState::Need((var, profile)) => {
@@ -183,58 +187,73 @@ impl OverlayTable {
 
     fn get_needed_var<'a, 'b: 'a>(
         &'b self,
-        key: &'a ProfileKey,
+        profile_key: &'a ProfileKey,
         variable: &'a str,
         muncher: &'b mut ValueMuncher<'a>,
     ) -> anyhow::Result<String> {
-        let top_profile = self.get(key).unwrap();
-        let (found, source) = top_profile
-            .parents
-            .iter()
-            .rev()
-            .find_map(|parent_key| {
-                self.get_highest_visible_var_definition(parent_key, variable)
-                    .ok()
-            })
-            .unwrap();
+        let (found, source) = self
+            .get_variable_from_parents(profile_key, variable)?
+            .ok_or_else(|| anyhow!("Needed a value for ${{{}}}", variable))?;
         match muncher.feed(found, source) {
             MuncherState::Done(tokens) => Ok(tokens.join("")),
             MuncherState::Need((var, profile)) => Ok(self.get_needed_var(profile, var, muncher)?),
         }
     }
 
-    fn get_highest_visible_var_definition<'a, 'b: 'a>(
-        &'b self,
-        key: &'a ProfileKey,
-        variable: &'b str,
-    ) -> anyhow::Result<(RVal<'b>, &'a ProfileKey)> {
-        let current_profile = match self.get(key) {
-            Some(p) => p,
-            None => bail!(
-                "Couldn't find a matching profile for key {:?} while searching for var: {}",
-                key,
-                variable
-            ),
-        };
+    /// Returns the direct contents of variable from the profile specified by the ProfileKey.
+    /// This function does *not* recurse into the inheritance tree and instead returns None
+    /// if the variable is not defined in this Profile.
+    fn get_variable_no_inheritance<'a: 'data, 'data, 'c>(
+        &'a self,
+        profile_key: &'c ProfileKey,
+        variable: &'data str,
+    ) -> anyhow::Result<Option<&'a RVal<'data>>> {
+        let profile = self.get(profile_key).ok_or_else(|| {
+            anyhow!(
+                "Unable to find a profile for key \"{}\"!",
+                profile_key.full_name()
+            )
+        })?;
+        Ok(profile.get(variable))
+    }
 
-        if let Some(rval) = current_profile
-            .conf
-            .as_ref()
-            .unwrap()
-            .suffix()
-            .get(variable)
-        {
-            Ok((rval.clone(), key))
-        } else {
-            current_profile
-                .parents
-                .iter()
-                .rev()
-                .find_map(|parent_key| {
-                    self.get_highest_visible_var_definition(parent_key, variable)
-                        .ok()
-                })
-                .ok_or_else(|| anyhow!("Couldn't find ANY value for variable: {}", variable))
+    /// Given a profile, get the direct contents of a variable from the highest priority parent of
+    /// that profile, *not including* the specified profile itself.
+    /// The inheritance heirarchy for profiles evaluated left-to-right so we search the rightmost
+    /// parent first as that is the highest priority profile.
+    fn get_variable_from_parents<'a: 'data, 'data>(
+        &'a self,
+        profile_key: &'data ProfileKey,
+        variable: &'data str,
+    ) -> anyhow::Result<Option<(&'data RVal<'data>, &'data ProfileKey)>> {
+        let profile = self.get(profile_key).ok_or_else(|| {
+            anyhow!(
+                "Unable to find a profile for key \"{}\"!",
+                profile_key.full_name()
+            )
+        })?;
+
+        let value = profile
+            .parents
+            .iter()
+            .rev() // Start with the rightmost parent.
+            .find_map(|parent_key| {
+                self.get_variable_with_inheritance(parent_key, variable)
+                    .ok()
+                    .flatten()
+            });
+
+        Ok(value)
+    }
+
+    fn get_variable_with_inheritance<'a: 'data, 'data>(
+        &'a self,
+        profile_key: &'data ProfileKey,
+        variable: &'data str,
+    ) -> anyhow::Result<Option<(&'a RVal<'data>, &'data ProfileKey)>> {
+        match self.get_variable_no_inheritance(profile_key, variable)? {
+            Some(v) => Ok(Some((v, profile_key))),
+            None => Ok(self.get_variable_from_parents(profile_key, variable)?),
         }
     }
 }
