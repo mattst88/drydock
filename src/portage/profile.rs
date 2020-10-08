@@ -1,10 +1,19 @@
-use std::cmp::{Eq, PartialEq};
+use std::collections::HashMap;
 use std::fs;
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
+use std::{
+    cmp::{Eq, PartialEq},
+    str::FromStr,
+};
+
+use anyhow::bail;
+use nom_locate::LocatedSpan;
 
 use crate::parse;
-use crate::portage::profile_parser::{full_parse, RVal, Value, ValueMap};
+use crate::portage::profile_parser::{full_parse, RVal, Value};
+
+use super::profile_parser::Span;
 
 const PARENT_FILE: &str = "parent";
 const MAKE_DEFAULTS: &str = "make.defaults";
@@ -15,8 +24,9 @@ rental! {
 
         #[rental(debug, covariant)]
         pub struct ParsedFile {
+            path: PathBuf,
             raw: String,
-            map: ValueMap<'raw>
+            map: HashMap<&'raw str, RVal<'raw, 'path>>,
         }
     }
 }
@@ -48,8 +58,8 @@ impl Profile {
         if !file_path.exists() {
             return Ok(Vec::new());
         }
-        let contents = fs::read_to_string(file_path)?;
-        parse::parse_parent_file(&contents)
+        let contents = fs::read_to_string(&file_path)?;
+        parse::parse_parent_file(Span::new_extra(&contents, file_path.as_path()))
     }
 
     pub fn parse_conf(&mut self) -> anyhow::Result<()> {
@@ -58,11 +68,15 @@ impl Profile {
             None => {
                 let conf_path = self.full_path.join(MAKE_DEFAULTS);
                 let contents = if conf_path.is_file() {
-                    fs::read_to_string(conf_path)?
+                    fs::read_to_string(&conf_path)?
                 } else {
                     String::new()
                 };
-                match rentals::ParsedFile::try_new(contents, |x| full_parse(x)) {
+                match rentals::ParsedFile::try_new(
+                    conf_path,
+                    |_| Ok(contents),
+                    |s, p| full_parse(LocatedSpan::new_extra(s, p)),
+                ) {
                     Ok(rentref) => {
                         self.conf = Some(rentref);
                         Ok(())
@@ -97,6 +111,18 @@ pub struct ProfileKey {
     data: String,
 }
 
+impl FromStr for ProfileKey {
+    type Err = anyhow::Error;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut splits = s.split(':');
+        if let (Some(overlay), Some(name)) = (splits.next(), splits.next()) {
+            Ok(Self::new(overlay, name))
+        } else {
+            bail! {"Unable to parse profile key from string. A profile key must be of the form overlay:path/to/profile."}
+        }
+    }
+}
+
 impl ProfileKey {
     pub fn new<T: Into<String>, U: Into<String>>(overlay: T, name: U) -> Self {
         Self {
@@ -117,12 +143,12 @@ impl ProfileKey {
     }
 }
 
-pub struct ValueMuncher<'a> {
-    output_tokens: Vec<&'a str>,
-    exploration_stack: Vec<(Value<'a>, &'a ProfileKey)>,
+pub struct ValueMuncher<'a, 'path> {
+    output_tokens: Vec<Span<'a, 'path>>,
+    exploration_stack: Vec<(Value<'a, 'path>, &'a ProfileKey)>,
 }
 
-impl<'a> ValueMuncher<'a> {
+impl<'a, 'path> ValueMuncher<'a, 'path> {
     pub fn new() -> Self {
         Self {
             output_tokens: Default::default(),
@@ -130,7 +156,11 @@ impl<'a> ValueMuncher<'a> {
         }
     }
 
-    pub fn feed<'b>(&'b mut self, rval: &'a RVal<'a>, profile: &'a ProfileKey) -> MuncherState<'a> {
+    pub fn feed<'b>(
+        &'b mut self,
+        rval: &'a RVal<'a, 'path>,
+        profile: &'a ProfileKey,
+    ) -> MuncherState<'a, 'path> {
         for val in rval.vals.clone().into_iter().rev() {
             self.exploration_stack.push((val, profile));
         }
@@ -138,7 +168,7 @@ impl<'a> ValueMuncher<'a> {
         self.munch()
     }
 
-    fn munch<'b>(&'b mut self) -> MuncherState<'a> {
+    fn munch<'b>(&'b mut self) -> MuncherState<'a, 'path> {
         loop {
             match self.exploration_stack.pop() {
                 None => return MuncherState::Done(std::mem::take(&mut self.output_tokens)),
@@ -157,9 +187,9 @@ impl<'a> ValueMuncher<'a> {
     }
 }
 
-pub enum MuncherState<'a> {
-    Need((&'a str, &'a ProfileKey)),
-    Done(Vec<&'a str>),
+pub enum MuncherState<'a, 'path> {
+    Need((Span<'a, 'path>, &'a ProfileKey)),
+    Done(Vec<Span<'a, 'path>>),
 }
 
 static INCREMENTAL_VARIABLES: &[&str] = &[

@@ -8,10 +8,9 @@ use nom::{
     combinator::map,
     multi::{many0, many1},
     sequence::{preceded, separated_pair},
-    Finish,
 };
 
-use crate::portage::profile_parser as parse;
+use crate::portage::profile_parser::{self as parse, Span};
 
 lazy_static! {
     static ref PARENT_REGEX: regex::Regex =
@@ -23,7 +22,7 @@ lazy_static! {
         regex::Regex::new(r"(?m)^repo-name\s=\s([A-Za-z0-9_-]+)").unwrap();
 }
 
-pub fn parse_parent_file(body: &str) -> anyhow::Result<Vec<(Option<String>, PathBuf)>> {
+pub fn parse_parent_file(body: Span) -> anyhow::Result<Vec<(Option<String>, PathBuf)>> {
     many1(preceded(
         many0(preceded(multispace0, parse::comment_line)), // comment or blank line
         alt((
@@ -32,23 +31,27 @@ pub fn parse_parent_file(body: &str) -> anyhow::Result<Vec<(Option<String>, Path
                     multispace0,
                     separated_pair(is_not(": \n"), tag(":"), is_not(" \n")),
                 ), // absolute path
-                |(r, p)| (Some(String::from(r)), PathBuf::from(p)),
+                |(r, p): (Span, Span)| {
+                    (
+                        Some(String::from(*r.fragment())),
+                        PathBuf::from(p.fragment()),
+                    )
+                },
             ),
-            map(preceded(multispace0, is_not(" \n")), |v| {
-                (None, PathBuf::from(v))
+            map(preceded(multispace0, is_not(" \n")), |v: Span| {
+                (None, PathBuf::from(v.fragment()))
             }),
         )),
     ))(body)
-    .finish()
-    .map(|(_, v): (&str, Vec<(Option<String>, PathBuf)>)| v)
+    .map(|(_, v): (Span, Vec<(Option<String>, PathBuf)>)| v)
     .map_err(|_| anyhow::anyhow!("parser's busted :("))
 }
 
 /// Parse layout.conf and return only the overlay's name for now.
 /// repo-name = chromiumos
-pub fn parse_layout_conf(body: &str) -> anyhow::Result<&str> {
+pub fn parse_layout_conf<'a, 'b>(body: Span<'a, 'b>) -> anyhow::Result<&'a str> {
     LAYOUT_REGEX
-        .captures(body)
+        .captures(body.fragment())
         .map(|m| m.get(1))
         .flatten()
         .map(|m| m.as_str())
@@ -57,8 +60,15 @@ pub fn parse_layout_conf(body: &str) -> anyhow::Result<&str> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use std::path::Path;
 
+    use super::*;
+    fn null_span(text: &'static str) -> Span<'static, 'static> {
+        lazy_static! {
+            static ref NULL_PATH: &'static Path = Path::new("");
+        }
+        Span::new_extra(text, *NULL_PATH)
+    }
     const SAMPLE: &str = "# This is a comment.
 ..
 ../../../../../targets/sdk
@@ -78,7 +88,7 @@ use-manifests = strict
     #[test]
     fn test_parent_file_parse() {
         assert_eq!(
-            parse_parent_file(SAMPLE).unwrap(),
+            parse_parent_file(null_span(SAMPLE)).unwrap(),
             vec![
                 (None, PathBuf::from("..")),
                 (None, PathBuf::from("../../../../../targets/sdk")),
@@ -95,7 +105,7 @@ use-manifests = strict
     #[test]
     fn test_no_linefeed_parent_file_parse() {
         assert_eq!(
-            parse_parent_file(NO_LINEFEED).unwrap(),
+            parse_parent_file(null_span(NO_LINEFEED)).unwrap(),
             vec![(
                 Some("chromiumos".to_owned()),
                 PathBuf::from("features/selinux")
@@ -106,13 +116,16 @@ use-manifests = strict
     #[test]
     fn test_tiny_no_linefeed_parent_file_parse() {
         assert_eq!(
-            parse_parent_file("..").unwrap(),
+            parse_parent_file(null_span("..")).unwrap(),
             vec![(None, PathBuf::from("..")),]
         )
     }
 
     #[test]
     fn test_layout_regex() {
-        assert_eq!(parse_layout_conf(LAYOUT_SAMPLE).unwrap(), "chromiumos")
+        assert_eq!(
+            parse_layout_conf(null_span(LAYOUT_SAMPLE)).unwrap(),
+            "chromiumos"
+        )
     }
 }

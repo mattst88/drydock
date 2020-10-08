@@ -1,30 +1,35 @@
-use std::collections::HashMap;
 use std::fmt;
+use std::{collections::HashMap, path::Path};
 
 use anyhow::anyhow;
 
 use nom::{
     branch::alt,
-    bytes::complete::{is_not, tag},
-    character::complete::{self, multispace0, multispace1, satisfy},
+    bytes::complete::{is_not, tag, take_while, take_while1},
+    character::complete::{self, multispace0, multispace1},
+    character::is_alphabetic,
+    character::is_alphanumeric,
     combinator::{map, recognize},
     multi::many0,
     sequence::{preceded, terminated, tuple},
     IResult,
 };
 
-pub type ValueMap<'a> = HashMap<&'a str, RVal<'a>>;
+use nom_locate::LocatedSpan;
+
+pub type Span<'data, 'path> = LocatedSpan<&'data str, &'path Path>;
+pub type ValueMap<'data, 'path> = HashMap<&'data str, RVal<'data, 'path>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Value<'a> {
-    Literal(&'a str),
+pub enum Value<'a, 'b> {
+    Literal(Span<'a, 'b>),
     Expansion {
-        name: &'a str,
-        value: Option<Vec<Value<'a>>>,
+        name: Span<'a, 'b>,
+        value: Option<Vec<Value<'a, 'b>>>,
     },
 }
 
-impl<'a> fmt::Display for Value<'a> {
+impl<'a, 'b> fmt::Display for Value<'a, 'b> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Literal(s) => write!(f, "{}", s),
@@ -43,25 +48,23 @@ impl<'a> fmt::Display for Value<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RVal<'a> {
-    pub vals: Vec<Value<'a>>,
+pub struct RVal<'a, 'b> {
+    pub vals: Vec<Value<'a, 'b>>,
 }
 
-static PLACEHOLDER_RVAL: RVal<'static> = RVal { vals: Vec::new() };
+static PLACEHOLDER_RVAL: RVal<'static, 'static> = RVal { vals: Vec::new() };
 
-impl<'a> RVal<'a> {
-    pub fn placeholder() -> &'static RVal<'static> {
+impl<'a, 'b> RVal<'a, 'b> {
+    pub fn placeholder() -> &'static RVal<'static, 'static> {
         &PLACEHOLDER_RVAL
     }
-}
 
-impl<'a> RVal<'a> {
-    fn new(vals: Vec<Value<'a>>) -> Self {
+    fn new(vals: Vec<Value<'a, 'b>>) -> Self {
         Self { vals }
     }
 }
 
-impl<'a> fmt::Display for RVal<'a> {
+impl<'a, 'b> fmt::Display for RVal<'a, 'b> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for val in self.vals.iter() {
             write!(f, "{}", val)?;
@@ -70,17 +73,17 @@ impl<'a> fmt::Display for RVal<'a> {
     }
 }
 
-pub fn full_parse(mut input: &str) -> anyhow::Result<ValueMap> {
+pub fn full_parse<'a, 'b>(mut input: Span<'a, 'b>) -> anyhow::Result<ValueMap<'a, 'b>> {
     let mut assignment_map: ValueMap = HashMap::new();
 
-    while input != "" {
+    while input.fragment() != &"" {
         if let Ok((new_input, _)) = comment_line(input) {
             input = new_input;
         } else if let Ok((new_input, (lval, rval))) = assignment(input, &assignment_map) {
-            assignment_map.insert(lval, rval);
+            assignment_map.insert(lval.fragment(), rval);
             input = new_input;
         } else {
-            let (new, _) = multispace1::<&str, nom::error::Error<&str>>(input)
+            let (new, _) = multispace1::<Span, nom::error::VerboseError<Span>>(input)
                 .map_err(|e| anyhow!(e.to_string()))?;
             input = new;
         }
@@ -89,14 +92,14 @@ pub fn full_parse(mut input: &str) -> anyhow::Result<ValueMap> {
     Ok(assignment_map)
 }
 
-pub fn comment_line(input: &str) -> IResult<&str, &str> {
+pub fn comment_line<'a, 'b>(input: Span<'a, 'b>) -> IResult<Span<'a, 'b>, Span<'a, 'b>> {
     recognize(preceded(complete::char('#'), complete::not_line_ending))(input)
 }
 
-fn assignment<'a: 'b, 'b>(
-    input: &'a str,
-    prior_asn: &'b HashMap<&'a str, RVal<'a>>,
-) -> IResult<&'a str, (&'a str, RVal<'a>)> {
+fn assignment<'a: 'c, 'b, 'c>(
+    input: Span<'a, 'b>,
+    prior_asn: &'c HashMap<&'a str, RVal<'a, 'b>>,
+) -> IResult<Span<'a, 'b>, (Span<'a, 'b>, RVal<'a, 'b>)> {
     let quoted_rval_parser = |i| quoted_rval(i, prior_asn);
     let unquoted_rval_parser = |i| unquoted_rval(i, prior_asn);
     preceded(
@@ -111,10 +114,10 @@ fn assignment<'a: 'b, 'b>(
     )(input)
 }
 
-fn quoted_rval<'a, 'b>(
-    input: &'a str,
-    prior_asgn: &'b HashMap<&'a str, RVal<'a>>,
-) -> IResult<&'a str, RVal<'a>> {
+fn quoted_rval<'a: 'c, 'b, 'c>(
+    input: Span<'a, 'b>,
+    prior_asgn: &'c HashMap<&'a str, RVal<'a, 'b>>,
+) -> IResult<Span<'a, 'b>, RVal<'a, 'b>> {
     map(
         terminated(
             preceded(
@@ -122,7 +125,7 @@ fn quoted_rval<'a, 'b>(
                 many0(map(alt((literal, expansion)), |v| match v {
                     v @ Value::Literal { .. } => v,
                     Value::Expansion { name, .. } => {
-                        let value = prior_asgn.get(name).map(|a| a.vals.clone());
+                        let value = prior_asgn.get(name.fragment()).map(|a| a.vals.clone());
                         Value::Expansion { name, value }
                     }
                 })),
@@ -133,10 +136,10 @@ fn quoted_rval<'a, 'b>(
     )(input)
 }
 
-fn unquoted_rval<'a, 'b>(
-    input: &'a str,
-    prior_asgn: &'b HashMap<&'a str, RVal<'a>>,
-) -> IResult<&'a str, RVal<'a>> {
+fn unquoted_rval<'a: 'c, 'b, 'c>(
+    input: Span<'a, 'b>,
+    prior_asgn: &'c HashMap<&'a str, RVal<'a, 'b>>,
+) -> IResult<Span<'a, 'b>, RVal<'a, 'b>> {
     map(
         preceded(
             multispace0,
@@ -145,7 +148,7 @@ fn unquoted_rval<'a, 'b>(
                 |v| match v {
                     v @ Value::Literal { .. } => v,
                     Value::Expansion { name, .. } => {
-                        let value = prior_asgn.get(name).map(|a| a.vals.clone());
+                        let value = prior_asgn.get(name.fragment()).map(|a| a.vals.clone());
                         Value::Expansion { name, value }
                     }
                 },
@@ -155,18 +158,20 @@ fn unquoted_rval<'a, 'b>(
     )(input)
 }
 
-fn literal(input: &str) -> IResult<&str, Value> {
+fn literal<'a, 'b>(input: Span<'a, 'b>) -> IResult<Span<'a, 'b>, Value<'a, 'b>> {
     map(is_not("$\""), Value::Literal)(input)
 }
 
-fn variable(input: &str) -> IResult<&str, &str> {
+fn variable<'a, 'b>(input: Span<'a, 'b>) -> IResult<Span<'a, 'b>, Span<'a, 'b>> {
+    let leading_symbol = |c| is_alphabetic(c as u8);
+    let trailing_symbol = |c| is_alphanumeric(c as u8) || c == '_';
     recognize(preceded(
-        satisfy(|c| c.is_ascii_alphabetic()),
-        many0(satisfy(|c| c.is_ascii_alphanumeric() || c == '_')),
+        take_while1(leading_symbol),
+        take_while(trailing_symbol),
     ))(input)
 }
 
-fn expansion(input: &str) -> IResult<&str, Value> {
+fn expansion<'a, 'b>(input: Span<'a, 'b>) -> IResult<Span<'a, 'b>, Value<'a, 'b>> {
     map(
         preceded(
             tag("$"),
@@ -185,7 +190,14 @@ fn expansion(input: &str) -> IResult<&str, Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
+    use lazy_static::lazy_static;
+    use nom::Slice;
+    fn null_span(text: &'static str) -> Span<'static, 'static> {
+        lazy_static! {
+            static ref NULL_PATH: &'static Path = Path::new("");
+        }
+        Span::new_extra(text, *NULL_PATH)
+    }
     const FULL_SAMPLE: &str = r#"# Copyright (c) 2015 The Chromium OS Authors. All rights reserved.
 # Distributed under the terms of the GNU General Public License v2
 
@@ -261,11 +273,11 @@ LD="x86_64-pc-linux-gnu-ld.lld"
 
     #[test]
     fn test_comment_parse() {
-        let res = comment_line(FULL_SAMPLE);
+        let res = comment_line(null_span(FULL_SAMPLE));
         let (_, capture) = res.unwrap();
 
         assert_eq!(
-            capture,
+            *capture.fragment(),
             "# Copyright (c) 2015 The Chromium OS Authors. All rights reserved."
         );
     }
@@ -273,25 +285,26 @@ LD="x86_64-pc-linux-gnu-ld.lld"
     const ASSIGN: &str = r#"USE="${USE} hardened multilib pic pie -introspection -cracklib""#;
     #[test]
     fn test_single_assignment_parse() {
-        let res = assignment(ASSIGN, &HashMap::new());
+        let assign_span = null_span(ASSIGN);
+        let res = assignment(null_span(ASSIGN), &HashMap::new());
         let (out, asgn) = res.unwrap();
 
         assert_eq!(
             (
-                "USE",
+                assign_span.slice(0..3),
                 RVal {
                     vals: vec![
                         Value::Expansion {
-                            name: "USE",
+                            name: assign_span.slice(7..10),
                             value: None
                         },
-                        Value::Literal(" hardened multilib pic pie -introspection -cracklib")
+                        Value::Literal(assign_span.slice(11..62))
                     ]
                 }
             ),
             asgn
         );
-        assert_eq!(out, "");
+        assert_eq!(out, assign_span.slice(63..));
     }
 
     const MULTI_ASSIGN: &str = r#"
@@ -301,7 +314,8 @@ USE="${USE} bar"
 
     #[test]
     fn test_multi_assignment_parse() {
-        let res = full_parse(MULTI_ASSIGN);
+        let multi_assign_span = null_span(MULTI_ASSIGN);
+        let res = full_parse(multi_assign_span);
         let res = res.unwrap();
         let mut expected = HashMap::new();
         expected.insert(
@@ -309,10 +323,10 @@ USE="${USE} bar"
             RVal {
                 vals: vec![
                     Value::Expansion {
-                        name: "USE",
-                        value: Some(vec![Value::Literal("foo")]),
+                        name: multi_assign_span.slice(18usize..21usize),
+                        value: Some(vec![Value::Literal(multi_assign_span.slice(6..9))]),
                     },
-                    Value::Literal(" bar"),
+                    Value::Literal(multi_assign_span.slice(22..26)),
                 ],
             },
         );
@@ -321,7 +335,7 @@ USE="${USE} bar"
 
     #[test]
     fn test_multi_assign_evaluation() {
-        let res = full_parse(MULTI_ASSIGN);
+        let res = full_parse(null_span(MULTI_ASSIGN));
         let res = res.unwrap();
         assert_eq!("foo bar", format!("{}", res["USE"]));
     }
@@ -341,7 +355,7 @@ USE="${USE} bar"
 
     #[test]
     fn test_many_assign_evaluation() {
-        let res = full_parse(MANY_ASSIGN);
+        let res = full_parse(null_span(MANY_ASSIGN));
         let res = res.unwrap();
         assert_eq!(
             "foo bar bar bar bar bar bar bar bar bar",
@@ -359,14 +373,14 @@ LOL="${LOL} ${LOL} ${LOL} ${LOL} ${LOL}"
 
     #[test]
     fn test_25_laughs_evaluation() {
-        let res = full_parse(TWENTY_FIVE_LAUGHS);
+        let res = full_parse(null_span(TWENTY_FIVE_LAUGHS));
         let res = res.unwrap();
         assert_eq!(format!("{}", res["LOL"]), TWENTY_FIVE_LAUGHS_EXPANDED);
     }
 
     #[test]
     fn test_full_example_parse() {
-        let res = full_parse(FULL_SAMPLE);
+        let res = full_parse(null_span(FULL_SAMPLE));
         let res = res.unwrap();
         assert_eq!(res.len(), 13);
     }
@@ -446,21 +460,21 @@ LD=x86_64-pc-linux-gnu-ld.lld
 
     #[test]
     fn test_bad_quotes_full_example_parse() {
-        let res = full_parse(BAD_QUOTES_FULL_SAMPLE);
+        let res = full_parse(null_span(BAD_QUOTES_FULL_SAMPLE));
         let res = res.unwrap();
         assert_eq!(res.len(), 13);
     }
 
     #[test]
     fn test_bad_quotes_full_example_eval_unquoted() {
-        let res = full_parse(BAD_QUOTES_FULL_SAMPLE);
+        let res = full_parse(null_span(BAD_QUOTES_FULL_SAMPLE));
         let res = res.unwrap();
         assert_eq!(res["CC"].to_string(), "x86_64-pc-linux-gnu-clang");
     }
 
     #[test]
     fn test_bad_quotes_full_example_eval_quoted() {
-        let res = full_parse(BAD_QUOTES_FULL_SAMPLE);
+        let res = full_parse(null_span(BAD_QUOTES_FULL_SAMPLE));
         let res = res.unwrap();
         assert_eq!(res["PYTHON_TARGETS"].to_string(), "-python2_7 python3_6");
     }

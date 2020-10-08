@@ -1,22 +1,18 @@
+use std::str::FromStr;
+
 use clap::ArgMatches;
 
 use crate::graph;
-use crate::parse;
+
 use crate::portage::{overlay::build_overlay_map, ProfileKey};
 
 pub fn parents(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
     let targets = sub_args.values_of("profile").unwrap();
     let targets: Vec<_> = targets
-        .flat_map(|target| parse::parse_parent_file(&target))
+        .map(|target| ProfileKey::from_str(target).unwrap())
         .collect();
 
     let overlay_table = build_overlay_map(&config)?;
-
-    let start_profiles: Vec<ProfileKey> = targets
-        .into_iter()
-        .flat_map(|v| v.into_iter())
-        .map(|(r, p)| ProfileKey::new(r.unwrap(), p.to_string_lossy()))
-        .collect();
 
     if sub_args.is_present("tree") {
         // print_profile_tree(0, &profile, &profile_map);
@@ -24,7 +20,7 @@ pub fn parents(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result
     }
 
     if sub_args.is_present("graph") {
-        graph::dump_graphviz(&overlay_table, &start_profiles);
+        graph::dump_graphviz(&overlay_table, &targets);
     }
 
     Ok(())
@@ -32,12 +28,7 @@ pub fn parents(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result
 
 pub fn eval(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
     let target = sub_args.value_of("profile").unwrap();
-    let profile = parse::parse_parent_file(&target)
-        .unwrap()
-        .into_iter()
-        .map(|(o, p)| ProfileKey::new(o.unwrap(), p.to_string_lossy()))
-        .next()
-        .unwrap();
+    let profile = ProfileKey::from_str(target)?;
 
     let target_var = sub_args.value_of("variable").unwrap();
     let overlay_table = build_overlay_map(&config)?;

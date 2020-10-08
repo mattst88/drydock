@@ -3,17 +3,19 @@ mod traversal;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryFrom;
+use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use self::{builder::OverlayTableBuilder, traversal::ProfileIter};
+use self::builder::OverlayTableBuilder;
 
-use super::{profile::is_incremental_variable, Profile, ProfileKey};
+use super::{profile::is_incremental_variable, profile_parser::Span, Profile, ProfileKey};
 use crate::parse;
 use crate::portage::profile::{MuncherState, ValueMuncher};
 use crate::portage::profile_parser::RVal;
 
 use anyhow::{anyhow, Context};
+use nom_locate::LocatedSpan;
 
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub struct Overlay {
@@ -129,7 +131,10 @@ impl TryFrom<&Path> for Overlay {
     fn try_from(value: &Path) -> Result<Self, Self::Error> {
         let metadata_path = value.join("metadata/layout.conf");
         let layout_body = fs::read_to_string(&metadata_path)?;
-        let repo_name = parse::parse_layout_conf(&layout_body)?;
+        let repo_name = parse::parse_layout_conf(LocatedSpan::new_extra(
+            &layout_body,
+            metadata_path.as_path(),
+        ))?;
         let overlay = Overlay::new(repo_name.into(), value.into());
         Ok(overlay)
     }
@@ -182,10 +187,7 @@ impl OverlayTable {
             let incremental_values = self.compute_incremental_variable(profile_key, variable)?;
             let vals: Vec<String> = incremental_values
                 .into_iter()
-                .map(|(s, p)| {
-                    dbg!(p.full_name());
-                    s
-                })
+                .map(|(s, _p)| simple_format(&s))
                 .collect();
             let mut token_set = HashSet::new();
 
@@ -205,11 +207,18 @@ impl OverlayTable {
 
             Ok(tokens.join(" "))
         } else {
-            self.compute_non_incremental_variable(profile_key, variable)
+            Ok(simple_format(
+                &self.compute_non_incremental_variable(profile_key, variable)?,
+            ))
         }
     }
 
-    fn visit_arborescence_postorder<'a: 'b, 'b: 'c, 'c, V: FnMut(&'b ProfileKey) -> anyhow::Result<()> + 'c>(
+    fn visit_arborescence_postorder<
+        'a: 'b,
+        'b: 'c,
+        'c,
+        V: FnMut(&'b ProfileKey) -> anyhow::Result<()> + 'c,
+    >(
         &'a self,
         profile_key: &'b ProfileKey,
         visit: &mut V,
@@ -222,29 +231,29 @@ impl OverlayTable {
         Ok(())
     }
 
-    fn compute_non_incremental_variable<'a, 'b, 'c>(
-        &'a self,
-        profile_key: &'b ProfileKey,
-        variable: &'c str,
-    ) -> anyhow::Result<String> {
+    fn compute_non_incremental_variable<'a: 'b, 'b>(
+        &'b self,
+        profile_key: &'a ProfileKey,
+        variable: &'a str,
+    ) -> anyhow::Result<Vec<Span<'b, 'b>>> {
         let mut muncher = ValueMuncher::new();
         let (vals, k) = match self.get_variable_with_inheritance(profile_key, variable)? {
             Some(v) => v,
-            None => return Ok(String::new()),
+            None => return Ok(Vec::new()),
         };
         match muncher.feed(vals, k) {
-            MuncherState::Done(tokens) => Ok(tokens.join("")),
+            MuncherState::Done(tokens) => Ok(tokens),
             MuncherState::Need((var, originating_profile)) => {
-                Ok(self.get_needed_var(originating_profile, var, &mut muncher)?)
+                Ok(self.get_needed_var(originating_profile, var.fragment(), &mut muncher)?)
             }
         }
     }
 
-    fn compute_incremental_variable<'a: 'b, 'b, 'c>(
+    fn compute_incremental_variable<'a: 'b, 'b>(
         &'a self,
         profile_key: &'b ProfileKey,
-        variable: &'c str,
-    ) -> anyhow::Result<Vec<(String, &'b ProfileKey)>> {
+        variable: &'b str,
+    ) -> anyhow::Result<Vec<(Vec<Span<'b, 'b>>, &'b ProfileKey)>> {
         let mut incremental_values = Vec::new();
         {
             let results = &mut incremental_values;
@@ -259,18 +268,20 @@ impl OverlayTable {
         Ok(incremental_values)
     }
 
-    fn get_needed_var<'a, 'b: 'a>(
-        &'b self,
-        profile_key: &'a ProfileKey,
+    fn get_needed_var<'a: 'b, 'b: 'c, 'c>(
+        &'a self,
+        profile_key: &'b ProfileKey,
         variable: &'a str,
-        muncher: &'b mut ValueMuncher<'a>,
-    ) -> anyhow::Result<String> {
+        muncher: &'c mut ValueMuncher<'b, 'b>,
+    ) -> anyhow::Result<Vec<Span<'b, 'b>>> {
         let (found, source) = self
             .get_variable_from_parents(profile_key, variable)?
             .unwrap_or_else(|| (RVal::placeholder(), profile_key));
         match muncher.feed(found, source) {
-            MuncherState::Done(tokens) => Ok(tokens.join("")),
-            MuncherState::Need((var, profile)) => Ok(self.get_needed_var(profile, var, muncher)?),
+            MuncherState::Done(tokens) => Ok(tokens),
+            MuncherState::Need((var, profile)) => {
+                Ok(self.get_needed_var(profile, var.fragment(), muncher)?)
+            }
         }
     }
 
@@ -281,7 +292,7 @@ impl OverlayTable {
         &'a self,
         profile_key: &'c ProfileKey,
         variable: &'data str,
-    ) -> anyhow::Result<Option<&'a RVal<'data>>> {
+    ) -> anyhow::Result<Option<&'a RVal<'data, 'data>>> {
         let profile = self.get(profile_key).ok_or_else(|| {
             anyhow!(
                 "Unable to find a profile for key \"{}\"!",
@@ -299,7 +310,7 @@ impl OverlayTable {
         &'a self,
         profile_key: &'data ProfileKey,
         variable: &'data str,
-    ) -> anyhow::Result<Option<(&'data RVal<'data>, &'data ProfileKey)>> {
+    ) -> anyhow::Result<Option<(&'data RVal<'data, 'data>, &'data ProfileKey)>> {
         let profile = self.get(profile_key).ok_or_else(|| {
             anyhow!(
                 "Unable to find a profile for key \"{}\"!",
@@ -324,10 +335,19 @@ impl OverlayTable {
         &'a self,
         profile_key: &'data ProfileKey,
         variable: &'data str,
-    ) -> anyhow::Result<Option<(&'a RVal<'data>, &'data ProfileKey)>> {
+    ) -> anyhow::Result<Option<(&'a RVal<'data, 'data>, &'data ProfileKey)>> {
         match self.get_variable_no_inheritance(profile_key, variable)? {
             Some(v) => Ok(Some((v, profile_key))),
             None => Ok(self.get_variable_from_parents(profile_key, variable)?),
         }
     }
+}
+
+fn simple_format(tokens: &[Span]) -> String {
+    let mut output = String::new();
+
+    for token in tokens {
+        write!(&mut output, "{}", token.fragment()).unwrap();
+    }
+    output
 }

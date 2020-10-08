@@ -1,4 +1,4 @@
-use std::{collections::HashSet, iter::Rev, slice::Iter};
+use std::{collections::HashSet, slice::Iter};
 
 use petgraph::visit::{Data, DfsPostOrder, IntoNeighbors, Visitable};
 use petgraph::{data::DataMap, visit::GraphBase};
