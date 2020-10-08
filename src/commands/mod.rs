@@ -1,8 +1,9 @@
-use std::str::FromStr;
+use std::fmt::Write;
+use std::{collections::HashSet, str::FromStr};
 
 use clap::ArgMatches;
 
-use crate::graph;
+use crate::{graph, portage::profile::is_incremental_variable, portage::profile_parser::Span};
 
 use crate::portage::{overlay::build_overlay_map, ProfileKey};
 
@@ -32,8 +33,29 @@ pub fn eval(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<()
 
     let target_var = sub_args.value_of("variable").unwrap();
     let overlay_table = build_overlay_map(&config)?;
+    if is_incremental_variable(target_var) {
+        let vals = overlay_table.compute_variable(&profile, target_var)?;
+        let mut token_set = HashSet::new();
 
-    println!("{}", overlay_table.compute_variable(&profile, target_var)?);
+        for val in vals.iter() {
+            for token in val.fragment().split_ascii_whitespace() {
+                if token.starts_with('-') {
+                    token_set.remove(&token.strip_prefix('-').unwrap());
+                } else {
+                    token_set.insert(token);
+                }
+            }
+        }
+
+        let mut tokens: Vec<&str> = token_set.into_iter().collect();
+        tokens.sort_unstable();
+        tokens.dedup();
+
+        println!("{}", tokens.as_slice().join(" "))
+    } else {
+        let vals = overlay_table.compute_variable(&profile, target_var)?;
+        println!("{}", simple_format(&vals));
+    }
     Ok(())
 }
 
@@ -44,16 +66,12 @@ pub fn dump_debug(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Res
     println!("{:#?}", overlay_table.map[target]);
     Ok(())
 }
-// fn print_profile_tree<'a>(
-//     depth: usize,
-//     profile: &'a Profile<'a>,
-//     profile_map: &'a HashMap<Profile<'a>, Vec<Profile<'a>>>,
-// ) {
-//     for _ in 0..depth {
-//         print!("  ");
-//     }
-//     println!("{}:{}", profile.overlay.name, profile.rel_path.display());
-//     for p in profile_map.get(profile).unwrap_or(&Vec::new()).iter() {
-//         print_profile_tree(depth + 1, p, profile_map)
-//     }
-// }
+
+fn simple_format(tokens: &[Span]) -> String {
+    let mut output = String::new();
+
+    for token in tokens {
+        write!(&mut output, "{}", token.fragment()).unwrap();
+    }
+    output
+}

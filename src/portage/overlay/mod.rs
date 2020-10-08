@@ -1,9 +1,9 @@
 mod builder;
 mod traversal;
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;
-use std::fmt::Write;
+
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -178,38 +178,21 @@ impl OverlayTable {
             .flatten()
     }
 
-    pub fn compute_variable(
-        &self,
-        profile_key: &ProfileKey,
-        variable: &str,
-    ) -> anyhow::Result<String> {
+    pub fn compute_variable<'a: 'b, 'b>(
+        &'a self,
+        profile_key: &'a ProfileKey,
+        variable: &'a str,
+    ) -> anyhow::Result<Vec<Span<'b, 'b>>> {
         if is_incremental_variable(variable) {
             let incremental_values = self.compute_incremental_variable(profile_key, variable)?;
-            let vals: Vec<String> = incremental_values
+            let vals: Vec<Span> = incremental_values
                 .into_iter()
-                .map(|(s, _p)| simple_format(&s))
+                .flat_map(|(v, _p)| v.into_iter())
                 .collect();
-            let mut token_set = HashSet::new();
 
-            for val in vals.iter() {
-                for token in val.split_ascii_whitespace() {
-                    if token.starts_with('-') {
-                        token_set.remove(&token.strip_prefix('-').unwrap());
-                    } else {
-                        token_set.insert(token);
-                    }
-                }
-            }
-
-            let mut tokens: Vec<&str> = token_set.into_iter().collect();
-            tokens.sort_unstable();
-            tokens.dedup();
-
-            Ok(tokens.join(" "))
+            Ok(vals)
         } else {
-            Ok(simple_format(
-                &self.compute_non_incremental_variable(profile_key, variable)?,
-            ))
+            Ok(self.compute_non_incremental_variable(profile_key, variable)?)
         }
     }
 
@@ -341,13 +324,4 @@ impl OverlayTable {
             None => Ok(self.get_variable_from_parents(profile_key, variable)?),
         }
     }
-}
-
-fn simple_format(tokens: &[Span]) -> String {
-    let mut output = String::new();
-
-    for token in tokens {
-        write!(&mut output, "{}", token.fragment()).unwrap();
-    }
-    output
 }
