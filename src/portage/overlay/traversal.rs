@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, iter::Rev, slice::Iter};
 
 use petgraph::visit::{Data, DfsPostOrder, IntoNeighbors, Visitable};
 use petgraph::{data::DataMap, visit::GraphBase};
@@ -18,11 +18,11 @@ impl<'a> Data for &'a OverlayTable {
 }
 
 impl<'a> DataMap for &'a OverlayTable {
-    fn node_weight(self: &Self, id: Self::NodeId) -> Option<&Self::NodeWeight> {
+    fn node_weight(&self, id: Self::NodeId) -> Option<&Self::NodeWeight> {
         self.get(id)
     }
 
-    fn edge_weight(self: &Self, id: Self::EdgeId) -> Option<&Self::EdgeWeight> {
+    fn edge_weight(&self, id: Self::EdgeId) -> Option<&Self::EdgeWeight> {
         self.get(id.0).and_then(|p| {
             if p.parents.contains(id.1) {
                 Some(&())
@@ -36,27 +36,39 @@ impl<'a> DataMap for &'a OverlayTable {
 impl<'a> Visitable for &'a OverlayTable {
     type Map = HashSet<Self::NodeId>;
 
-    fn visit_map(self: &Self) -> Self::Map {
+    fn visit_map(&self) -> Self::Map {
         Self::Map::new()
     }
 
-    fn reset_map(self: &Self, map: &mut Self::Map) {
+    fn reset_map(&self, map: &mut Self::Map) {
         map.clear()
     }
 }
 
 impl<'a: 'b, 'b> IntoNeighbors for &'b &'a OverlayTable {
-    type Neighbors = std::slice::Iter<'a, ProfileKey>;
+    type Neighbors = Iter<'a, ProfileKey>;
 
-    fn neighbors(self: Self, a: Self::NodeId) -> Self::Neighbors {
+    fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
         self.get(a).map(|p| p.parents.iter()).unwrap_or([].iter())
     }
 }
 
-struct ProfileIter<'a> {
+pub(super) struct ProfileIter<'a> {
     visitor:
         DfsPostOrder<<&'a OverlayTable as GraphBase>::NodeId, <&'a OverlayTable as Visitable>::Map>,
     overlay_table: &'a OverlayTable,
+}
+
+impl<'a> ProfileIter<'a> {
+    pub(super) fn new(
+        overlay_table: &'a OverlayTable,
+        start: <&'a OverlayTable as GraphBase>::NodeId,
+    ) -> Self {
+        Self {
+            overlay_table,
+            visitor: DfsPostOrder::new(&overlay_table, start),
+        }
+    }
 }
 
 impl<'a> Iterator for ProfileIter<'a> {

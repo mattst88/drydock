@@ -161,3 +161,19 @@ pub enum MuncherState<'a> {
     Need((&'a str, &'a ProfileKey)),
     Done(Vec<&'a str>),
 }
+
+static INCREMENTAL_VARIABLES: &[&str] = &[
+    "USE",
+    "USE_EXPAND",
+    "USE_EXPAND_HIDDEN",
+    "CONFIG_PROTECT",
+    "CONFIG_PROTECT_MASK",
+    "IUSE_IMPLICIT",
+    "USE_EXPAND_IMPLICIT",
+    "USE_EXPAND_UNPREFIXED",
+    "ENV_UNSET",
+];
+
+pub(super) fn is_incremental_variable(variable: &str) -> bool {
+    INCREMENTAL_VARIABLES.contains(&variable)
+}

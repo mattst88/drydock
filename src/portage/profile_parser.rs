@@ -13,18 +13,6 @@ use nom::{
     IResult,
 };
 
-static _INCREMENTAL_VARIABLES: &[&str] = &[
-    "USE",
-    "USE_EXPAND",
-    "USE_EXPAND_HIDDEN",
-    "CONFIG_PROTECT",
-    "CONFIG_PROTECT_MASK",
-    "IUSE_IMPLICIT",
-    "USE_EXPAND_IMPLICIT",
-    "USE_EXPAND_UNPREFIXED",
-    "ENV_UNSET",
-];
-
 pub type ValueMap<'a> = HashMap<&'a str, RVal<'a>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +45,14 @@ impl<'a> fmt::Display for Value<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RVal<'a> {
     pub vals: Vec<Value<'a>>,
+}
+
+static PLACEHOLDER_RVAL: RVal<'static> = RVal { vals: Vec::new() };
+
+impl<'a> RVal<'a> {
+    pub fn placeholder() -> &'static RVal<'static> {
+        &PLACEHOLDER_RVAL
+    }
 }
 
 impl<'a> RVal<'a> {

@@ -42,10 +42,7 @@ pub fn eval(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<()
     let target_var = sub_args.value_of("variable").unwrap();
     let overlay_table = build_overlay_map(&config)?;
 
-    println!(
-        "{}",
-        overlay_table.compute_flattened_variable(&profile, target_var)?
-    );
+    println!("{}", overlay_table.compute_variable(&profile, target_var)?);
     Ok(())
 }
 

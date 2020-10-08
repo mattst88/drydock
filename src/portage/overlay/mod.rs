@@ -1,14 +1,14 @@
 mod builder;
 mod traversal;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::convert::TryFrom;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use self::builder::OverlayTableBuilder;
+use self::{builder::OverlayTableBuilder, traversal::ProfileIter};
 
-use super::{Profile, ProfileKey};
+use super::{profile::is_incremental_variable, Profile, ProfileKey};
 use crate::parse;
 use crate::portage::profile::{MuncherState, ValueMuncher};
 use crate::portage::profile_parser::RVal;
@@ -173,19 +173,90 @@ impl OverlayTable {
             .flatten()
     }
 
-    pub fn compute_flattened_variable(
+    pub fn compute_variable(
         &self,
-        key: &ProfileKey,
+        profile_key: &ProfileKey,
         variable: &str,
     ) -> anyhow::Result<String> {
+        if is_incremental_variable(variable) {
+            let incremental_values = self.compute_incremental_variable(profile_key, variable)?;
+            let vals: Vec<String> = incremental_values
+                .into_iter()
+                .map(|(s, p)| {
+                    dbg!(p.full_name());
+                    s
+                })
+                .collect();
+            let mut token_set = HashSet::new();
+
+            for val in vals.iter() {
+                for token in val.split_ascii_whitespace() {
+                    if token.starts_with('-') {
+                        token_set.remove(&token.strip_prefix('-').unwrap());
+                    } else {
+                        token_set.insert(token);
+                    }
+                }
+            }
+
+            let mut tokens: Vec<&str> = token_set.into_iter().collect();
+            tokens.sort_unstable();
+            tokens.dedup();
+
+            Ok(tokens.join(" "))
+        } else {
+            self.compute_non_incremental_variable(profile_key, variable)
+        }
+    }
+
+    fn visit_arborescence_postorder<'a: 'b, 'b: 'c, 'c, V: FnMut(&'b ProfileKey) -> anyhow::Result<()> + 'c>(
+        &'a self,
+        profile_key: &'b ProfileKey,
+        visit: &mut V,
+    ) -> anyhow::Result<()> {
+        let p = self.get(profile_key).unwrap();
+        for parent_key in p.parents.iter() {
+            self.visit_arborescence_postorder(parent_key, visit)?;
+        }
+        visit(profile_key);
+        Ok(())
+    }
+
+    fn compute_non_incremental_variable<'a, 'b, 'c>(
+        &'a self,
+        profile_key: &'b ProfileKey,
+        variable: &'c str,
+    ) -> anyhow::Result<String> {
         let mut muncher = ValueMuncher::new();
-        let (vals, k) = self.get_variable_with_inheritance(key, variable)?.unwrap();
+        let (vals, k) = match self.get_variable_with_inheritance(profile_key, variable)? {
+            Some(v) => v,
+            None => return Ok(String::new()),
+        };
         match muncher.feed(vals, k) {
             MuncherState::Done(tokens) => Ok(tokens.join("")),
-            MuncherState::Need((var, profile)) => {
-                Ok(self.get_needed_var(profile, var, &mut muncher)?)
+            MuncherState::Need((var, originating_profile)) => {
+                Ok(self.get_needed_var(originating_profile, var, &mut muncher)?)
             }
         }
+    }
+
+    fn compute_incremental_variable<'a: 'b, 'b, 'c>(
+        &'a self,
+        profile_key: &'b ProfileKey,
+        variable: &'c str,
+    ) -> anyhow::Result<Vec<(String, &'b ProfileKey)>> {
+        let mut incremental_values = Vec::new();
+        {
+            let results = &mut incremental_values;
+            let _self = &self;
+            let mut visitor = |p| {
+                results.push((_self.compute_non_incremental_variable(p, variable)?, p));
+                Ok(())
+            };
+
+            self.visit_arborescence_postorder(profile_key, &mut visitor)?;
+        }
+        Ok(incremental_values)
     }
 
     fn get_needed_var<'a, 'b: 'a>(
@@ -196,7 +267,7 @@ impl OverlayTable {
     ) -> anyhow::Result<String> {
         let (found, source) = self
             .get_variable_from_parents(profile_key, variable)?
-            .ok_or_else(|| anyhow!("Needed a value for ${{{}}}", variable))?;
+            .unwrap_or_else(|| (RVal::placeholder(), profile_key));
         match muncher.feed(found, source) {
             MuncherState::Done(tokens) => Ok(tokens.join("")),
             MuncherState::Need((var, profile)) => Ok(self.get_needed_var(profile, var, muncher)?),
