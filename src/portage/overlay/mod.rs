@@ -218,7 +218,7 @@ impl OverlayTable {
         for parent_key in p.parents.iter() {
             self.visit_arborescence_postorder(parent_key, visit)?;
         }
-        visit(profile_key);
+        visit(profile_key)?;
         Ok(())
     }
 
