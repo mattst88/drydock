@@ -91,12 +91,13 @@ impl Overlay {
                                 )
                             }) {
                             Ok(p) => p,
-                            Err(e) => {
-                                eprintln!(
-                                    "Malformed profile found at {:?}\n\tProblem: {}",
-                                    entry.path(),
-                                    e
-                                );
+                            Err(_e) => {
+                                // TODO: Replace with logging.
+                                // eprintln!(
+                                //     "Malformed profile found at {:?}\n\tProblem: {}",
+                                //     entry.path(),
+                                //     e
+                                // );
                                 continue;
                             }
                         };

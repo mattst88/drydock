@@ -60,6 +60,7 @@ pub(super) struct ProfileIter<'a> {
 }
 
 impl<'a> ProfileIter<'a> {
+    #[allow(dead_code)]
     pub(super) fn new(
         overlay_table: &'a OverlayTable,
         start: <&'a OverlayTable as GraphBase>::NodeId,

@@ -61,6 +61,24 @@ fn main() -> anyhow::Result<()> {
                 ),
         )
         .subcommand(
+            SubCommand::with_name("blame")
+                .about("Show the value of a variable for a profile annotated with the sources of that variable's contents.")
+                .arg(
+                    Arg::with_name("profile")
+                        .short("p")
+                        .long("profile")
+                        .takes_value(true)
+                        .required(true)
+                        .help("The target profile to query."),
+                )
+                .arg(
+                    Arg::with_name("variable")
+                        .takes_value(true)
+                        .required(true)
+                        .multiple(false),
+                ),
+        )
+        .subcommand(
             SubCommand::with_name("dump_debug")
                 .about("Dump debug information for an overlay.")
                 .arg(
@@ -74,16 +92,13 @@ fn main() -> anyhow::Result<()> {
         )
         .get_matches();
 
-    if let Some(sub_args) = args.subcommand_matches("dump_debug") {
-        commands::dump_debug(&config, sub_args)?;
+    match args.subcommand() {
+        ("blame", Some(sub_args)) => commands::blame(&config, sub_args)?,
+        ("dump_debug", Some(sub_args)) => commands::dump_debug(&config, sub_args)?,
+        ("eval", Some(sub_args)) => commands::eval(&config, sub_args)?,
+        ("parents", Some(sub_args)) => commands::parents(&config, sub_args)?,
+        _ => unimplemented!(),
     };
-    if let Some(sub_args) = args.subcommand_matches("parents") {
-        commands::parents(&config, sub_args)?;
-    };
-
-    if let Some(sub_args) = args.subcommand_matches("eval") {
-        commands::eval(&config, sub_args)?;
-    }
 
     Ok(())
 }
