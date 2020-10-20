@@ -216,9 +216,9 @@ impl OverlayTable {
     }
 
     fn compute_non_incremental_variable<'a: 'b, 'b>(
-        &'b self,
-        profile_key: &'a ProfileKey,
-        variable: &'a str,
+        &'a self,
+        profile_key: &'b ProfileKey,
+        variable: &'b str,
     ) -> anyhow::Result<Vec<Span<'b, 'b>>> {
         let mut muncher = ValueMuncher::new();
         let (vals, k) = match self.get_variable_with_inheritance(profile_key, variable)? {
@@ -252,11 +252,11 @@ impl OverlayTable {
         Ok(incremental_values)
     }
 
-    fn get_needed_var<'a: 'b, 'b: 'c, 'c>(
+    fn get_needed_var<'a: 'b, 'b>(
         &'a self,
         profile_key: &'b ProfileKey,
-        variable: &'a str,
-        muncher: &'c mut ValueMuncher<'b, 'b>,
+        variable: &'b str,
+        muncher: &mut ValueMuncher<'b, 'b>,
     ) -> anyhow::Result<Vec<Span<'b, 'b>>> {
         let (found, source) = self
             .get_variable_from_parents(profile_key, variable)?
@@ -272,11 +272,11 @@ impl OverlayTable {
     /// Returns the direct contents of variable from the profile specified by the ProfileKey.
     /// This function does *not* recurse into the inheritance tree and instead returns None
     /// if the variable is not defined in this Profile.
-    fn get_variable_no_inheritance<'a: 'data, 'data, 'c>(
+    fn get_variable_no_inheritance<'a: 'b, 'b>(
         &'a self,
-        profile_key: &'c ProfileKey,
-        variable: &'data str,
-    ) -> anyhow::Result<Option<&'a RVal<'data, 'data>>> {
+        profile_key: &'b ProfileKey,
+        variable: &'b str,
+    ) -> anyhow::Result<Option<&RVal<'b, 'b>>> {
         let profile = self.get(profile_key).ok_or_else(|| {
             anyhow!(
                 "Unable to find a profile for key \"{}\"!",
@@ -290,11 +290,11 @@ impl OverlayTable {
     /// that profile, *not including* the specified profile itself.
     /// The inheritance heirarchy for profiles evaluated left-to-right so we search the rightmost
     /// parent first as that is the highest priority profile.
-    fn get_variable_from_parents<'a: 'data, 'data>(
+    fn get_variable_from_parents<'a: 'b, 'b>(
         &'a self,
-        profile_key: &'data ProfileKey,
-        variable: &'data str,
-    ) -> anyhow::Result<Option<(&'data RVal<'data, 'data>, &'data ProfileKey)>> {
+        profile_key: &'b ProfileKey,
+        variable: &'b str,
+    ) -> anyhow::Result<Option<(&RVal<'b, 'b>, &ProfileKey)>> {
         let profile = self.get(profile_key).ok_or_else(|| {
             anyhow!(
                 "Unable to find a profile for key \"{}\"!",
@@ -315,11 +315,11 @@ impl OverlayTable {
         Ok(value)
     }
 
-    fn get_variable_with_inheritance<'a: 'data, 'data>(
+    fn get_variable_with_inheritance<'a: 'b, 'b>(
         &'a self,
-        profile_key: &'data ProfileKey,
-        variable: &'data str,
-    ) -> anyhow::Result<Option<(&'a RVal<'data, 'data>, &'data ProfileKey)>> {
+        profile_key: &'b ProfileKey,
+        variable: &'b str,
+    ) -> anyhow::Result<Option<(&RVal<'b, 'b>, &ProfileKey)>> {
         match self.get_variable_no_inheritance(profile_key, variable)? {
             Some(v) => Ok(Some((v, profile_key))),
             None => Ok(self.get_variable_from_parents(profile_key, variable)?),
