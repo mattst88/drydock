@@ -8,6 +8,7 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0"
+colored = "2"
 config = "0.10.1"
 ignore = "0.4.16"
 lazy_static = "1.4.0"

@@ -9,7 +9,10 @@ use std::path::{Path, PathBuf};
 
 use self::builder::OverlayTableBuilder;
 
-use super::{profile::is_incremental_variable, profile_parser::Span, Profile, ProfileKey};
+use super::{
+    profile::is_builtin_incremental_variable, profile_parser::Span, variables::TokenSet, Profile,
+    ProfileKey,
+};
 use crate::parse;
 use crate::portage::profile::{MuncherState, ValueMuncher};
 use crate::portage::profile_parser::RVal;
@@ -179,17 +182,25 @@ impl OverlayTable {
             .flatten()
     }
 
+    pub fn is_incremental_variable(&self, _profile_key: &ProfileKey, variable: &str) -> bool {
+        is_builtin_incremental_variable(variable)
+    }
+
     pub fn compute_variable<'a: 'b, 'b>(
         &'a self,
         profile_key: &'a ProfileKey,
         variable: &'a str,
     ) -> anyhow::Result<Vec<Span<'b, 'b>>> {
-        if is_incremental_variable(variable) {
+        if self.is_incremental_variable(profile_key, variable) {
             let incremental_values = self.compute_incremental_variable(profile_key, variable)?;
-            let vals: Vec<Span> = incremental_values
-                .into_iter()
-                .flat_map(|(v, _p)| v.into_iter())
-                .collect();
+            let tokens = incremental_values.into_iter().map(|(s, _)| s).fold(
+                TokenSet::default(),
+                |mut base, next| {
+                    base.merge(next);
+                    base
+                },
+            );
+            let vals: Vec<Span> = tokens.to_spans();
 
             Ok(vals)
         } else {
@@ -197,7 +208,7 @@ impl OverlayTable {
         }
     }
 
-    fn visit_arborescence_postorder<
+    pub fn visit_arborescence_postorder<
         'a: 'b,
         'b: 'c,
         'c,
@@ -233,17 +244,18 @@ impl OverlayTable {
         }
     }
 
-    fn compute_incremental_variable<'a: 'b, 'b>(
+    pub fn compute_incremental_variable<'a: 'b, 'b>(
         &'a self,
         profile_key: &'b ProfileKey,
         variable: &'b str,
-    ) -> anyhow::Result<Vec<(Vec<Span<'b, 'b>>, &'b ProfileKey)>> {
+    ) -> anyhow::Result<Vec<(TokenSet<'b, 'b>, &'b ProfileKey)>> {
         let mut incremental_values = Vec::new();
         {
             let results = &mut incremental_values;
-            let _self = &self;
             let mut visitor = |p| {
-                results.push((_self.compute_non_incremental_variable(p, variable)?, p));
+                let var = self.compute_non_incremental_variable(p, variable)?;
+
+                results.push((TokenSet::from_raw_spans(&var), p));
                 Ok(())
             };
 

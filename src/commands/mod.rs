@@ -1,10 +1,12 @@
 use std::{cmp::max, collections::HashMap, fmt::Write, path::PathBuf};
-use std::{collections::HashSet, str::FromStr};
+use std::{collections::BTreeSet, str::FromStr};
 
+use anyhow::bail;
 use clap::ArgMatches;
+use colored::Colorize;
 use source_span::{fmt::Style, Position};
 
-use crate::{graph, portage::profile::is_incremental_variable, portage::profile_parser::Span};
+use crate::{graph, portage::profile_parser::Span, portage::variables::TokenState};
 
 use crate::portage::{overlay::build_overlay_map, ProfileKey};
 
@@ -34,25 +36,14 @@ pub fn eval(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<()
 
     let target_var = sub_args.value_of("variable").unwrap();
     let overlay_table = build_overlay_map(&config)?;
-    if is_incremental_variable(target_var) {
+    if overlay_table.is_incremental_variable(&profile, target_var) {
         let vals = overlay_table.compute_variable(&profile, target_var)?;
-        let mut token_set = HashSet::new();
 
-        for val in vals.iter() {
-            for token in val.fragment().split_ascii_whitespace() {
-                if token.starts_with('-') {
-                    token_set.remove(&token.strip_prefix('-').unwrap());
-                } else {
-                    token_set.insert(token);
-                }
-            }
+        let mut output = String::new();
+        for val in vals {
+            write!(&mut output, "{} ", val.fragment()).unwrap();
         }
-
-        let mut tokens: Vec<&str> = token_set.into_iter().collect();
-        tokens.sort_unstable();
-        tokens.dedup();
-
-        println!("{}", tokens.as_slice().join(" "))
+        println!("{}", output);
     } else {
         let vals = overlay_table.compute_variable(&profile, target_var)?;
         println!("{}", simple_format(&vals));
@@ -64,10 +55,62 @@ pub fn blame(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<(
     let target = sub_args.value_of("profile").unwrap();
     let profile = ProfileKey::from_str(target)?;
 
-    let target_var = sub_args.value_of("variable").unwrap();
+    let mut target_values = sub_args.values_of("variable").unwrap();
+    let target_var = target_values.next().unwrap();
     let overlay_table = build_overlay_map(&config)?;
-    if is_incremental_variable(target_var) {
-        unimplemented!();
+    if overlay_table.is_incremental_variable(&profile, target_var) {
+        if let Some(subvar) = target_values.next() {
+            let sets = overlay_table.compute_incremental_variable(&profile, target_var)?;
+            let name_width = sets
+                .iter()
+                .map(|(_, p)| p.full_name().chars().count())
+                .max()
+                .unwrap()
+                + 2;
+            let matching_vars: BTreeSet<String> = sets
+                .iter()
+                .flat_map(|(s, _)| s.token_states.keys().filter(|v| v.starts_with(subvar)))
+                .map(|s| s.to_string())
+                .collect();
+
+            // Print table header.
+            print!("{:>width$}", "", width = name_width);
+            for matched_var in matching_vars.iter() {
+                print!(
+                    "{:>width$}",
+                    matched_var,
+                    width = max(matched_var.len() + 2, 7)
+                );
+            }
+            print!("\n");
+
+            // Print each row of the table.
+            for (set, p) in sets {
+                print!("{:<width$}", p.full_name(), width = name_width);
+
+                for matched_var in matching_vars.iter() {
+                    let var_fmt_width = max(matched_var.len() + 2, 7);
+                    if let Some(v) = set.token_states.get(matched_var.as_str()) {
+                        match v {
+                            TokenState::Enabled(_) => {
+                                print!("{:>var$}", "SET".green(), var = var_fmt_width);
+                            }
+                            TokenState::Disabled(_) => {
+                                print!("{:>var$}", "UNSET".red(), var = var_fmt_width);
+                            }
+                        }
+                    } else if let Some(_span) = set.glob {
+                        print!("{:>var$}", "UNSET".red(), var = var_fmt_width);
+                    } else {
+                        print!("{:>var$}", "", var = var_fmt_width);
+                    }
+                }
+
+                print!("\n");
+            }
+        } else {
+            bail!("Please specify a token to track when blaming an incremental variable.")
+        }
     } else {
         let vals = overlay_table.compute_variable(&profile, target_var)?;
         blame_format(&vals, config);

@@ -75,7 +75,12 @@ fn main() -> anyhow::Result<()> {
                     Arg::with_name("variable")
                         .takes_value(true)
                         .required(true)
-                        .multiple(false),
+                        .multiple(false)
+                        .min_values(1)
+                        .max_values(2)
+                        .value_delimiter(":")
+                        .require_delimiter(true)
+                        .value_names(&["VARIABLE", "TOKEN"]),
                 ),
         )
         .subcommand(

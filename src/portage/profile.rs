@@ -204,6 +204,6 @@ static INCREMENTAL_VARIABLES: &[&str] = &[
     "ENV_UNSET",
 ];
 
-pub fn is_incremental_variable(variable: &str) -> bool {
+pub fn is_builtin_incremental_variable(variable: &str) -> bool {
     INCREMENTAL_VARIABLES.contains(&variable)
 }
