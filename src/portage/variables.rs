@@ -72,7 +72,7 @@ impl<'a, 'b> TokenSet<'a, 'b> {
         self.token_states.append(&mut token_states);
     }
 
-    pub fn to_spans(self) -> Vec<Span<'a, 'b>> {
+    pub fn into_spans(self) -> Vec<Span<'a, 'b>> {
         self.token_states
             .into_iter()
             .filter_map(|(_, v)| match v {

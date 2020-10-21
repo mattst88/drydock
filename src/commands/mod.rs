@@ -82,7 +82,7 @@ pub fn blame(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<(
                     width = max(matched_var.len() + 2, 7)
                 );
             }
-            print!("\n");
+            println!();
 
             // Print each row of the table.
             for (set, p) in sets {
@@ -106,7 +106,7 @@ pub fn blame(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<(
                     }
                 }
 
-                print!("\n");
+                println!();
             }
         } else {
             bail!("Please specify a token to track when blaming an incremental variable.")
@@ -148,17 +148,12 @@ fn blame_format(tokens: &[Span], config: &config::Config) {
 
     let metrics = source_span::DEFAULT_METRICS;
     let src_buf: source_span::SourceBuffer<(), _, _> = source_span::SourceBuffer::new(
-        tokens
-            .into_iter()
-            .flat_map(|t| t.fragment().chars().map(|c| Ok(c))),
+        tokens.iter().flat_map(|t| t.fragment().chars().map(Ok)),
         Position::default(),
         metrics,
     );
 
-    let total_len: usize = tokens
-        .into_iter()
-        .map(|t| t.fragment().chars().count())
-        .sum();
+    let total_len: usize = tokens.iter().map(|t| t.fragment().chars().count()).sum();
     let mut chars_seen: usize = 0;
 
     for t in tokens {

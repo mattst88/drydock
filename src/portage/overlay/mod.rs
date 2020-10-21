@@ -200,7 +200,7 @@ impl OverlayTable {
                     base
                 },
             );
-            let vals: Vec<Span> = tokens.to_spans();
+            let vals: Vec<Span> = tokens.into_spans();
 
             Ok(vals)
         } else {
@@ -336,5 +336,11 @@ impl OverlayTable {
             Some(v) => Ok(Some((v, profile_key))),
             None => Ok(self.get_variable_from_parents(profile_key, variable)?),
         }
+    }
+}
+
+impl Default for OverlayTable {
+    fn default() -> Self {
+        Self::new()
     }
 }

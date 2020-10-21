@@ -24,6 +24,12 @@ impl OverlayTableBuilder {
     }
 }
 
+impl Default for OverlayTableBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'s> ignore::ParallelVisitorBuilder<'s> for OverlayTableBuilder {
     fn build(&mut self) -> Box<dyn ignore::ParallelVisitor + 's> {
         Box::new(OverlayTablePiece {

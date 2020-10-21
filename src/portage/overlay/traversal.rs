@@ -49,7 +49,9 @@ impl<'a: 'b, 'b> IntoNeighbors for &'b &'a OverlayTable {
     type Neighbors = Iter<'a, ProfileKey>;
 
     fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
-        self.get(a).map(|p| p.parents.iter()).unwrap_or([].iter())
+        self.get(a)
+            .map(|p| p.parents.iter())
+            .unwrap_or_else(|| [].iter())
     }
 }
 
