@@ -17,19 +17,19 @@ use nom::{
 
 use nom_locate::LocatedSpan;
 
-pub type Span<'data, 'path> = LocatedSpan<&'data str, &'path Path>;
-pub type ValueMap<'data, 'path> = HashMap<&'data str, RVal<'data, 'path>>;
+pub type Span<'a> = LocatedSpan<&'a str, &'a Path>;
+pub type ValueMap<'a> = HashMap<&'a str, RVal<'a>>;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Value<'a, 'b> {
-    Literal(Span<'a, 'b>),
+pub enum Value<'a> {
+    Literal(Span<'a>),
     Expansion {
-        name: Span<'a, 'b>,
-        value: Option<Vec<Value<'a, 'b>>>,
+        name: Span<'a>,
+        value: Option<Vec<Value<'a>>>,
     },
 }
 
-impl<'a, 'b> fmt::Display for Value<'a, 'b> {
+impl fmt::Display for Value<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             Value::Literal(s) => write!(f, "{}", s),
@@ -48,23 +48,23 @@ impl<'a, 'b> fmt::Display for Value<'a, 'b> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RVal<'a, 'b> {
-    pub vals: Vec<Value<'a, 'b>>,
+pub struct RVal<'a> {
+    pub vals: Vec<Value<'a>>,
 }
 
-static PLACEHOLDER_RVAL: RVal<'static, 'static> = RVal { vals: Vec::new() };
+static PLACEHOLDER_RVAL: RVal<'static> = RVal { vals: Vec::new() };
 
-impl<'a, 'b> RVal<'a, 'b> {
-    pub fn placeholder() -> &'static RVal<'static, 'static> {
+impl<'a> RVal<'a> {
+    pub fn placeholder() -> &'static RVal<'static> {
         &PLACEHOLDER_RVAL
     }
 
-    fn new(vals: Vec<Value<'a, 'b>>) -> Self {
+    fn new(vals: Vec<Value<'a>>) -> Self {
         Self { vals }
     }
 }
 
-impl<'a, 'b> fmt::Display for RVal<'a, 'b> {
+impl fmt::Display for RVal<'_> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         for val in self.vals.iter() {
             write!(f, "{}", val)?;
@@ -73,7 +73,7 @@ impl<'a, 'b> fmt::Display for RVal<'a, 'b> {
     }
 }
 
-pub fn full_parse<'a, 'b>(mut input: Span<'a, 'b>) -> anyhow::Result<ValueMap<'a, 'b>> {
+pub fn full_parse(mut input: Span<'_>) -> anyhow::Result<ValueMap<'_>> {
     let mut assignment_map: ValueMap = HashMap::new();
 
     while input.fragment() != &"" {
@@ -92,14 +92,14 @@ pub fn full_parse<'a, 'b>(mut input: Span<'a, 'b>) -> anyhow::Result<ValueMap<'a
     Ok(assignment_map)
 }
 
-pub fn comment_line<'a, 'b>(input: Span<'a, 'b>) -> IResult<Span<'a, 'b>, Span<'a, 'b>> {
+pub fn comment_line(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
     recognize(preceded(complete::char('#'), complete::not_line_ending))(input)
 }
 
-fn assignment<'a: 'c, 'b, 'c>(
-    input: Span<'a, 'b>,
-    prior_asn: &'c HashMap<&'a str, RVal<'a, 'b>>,
-) -> IResult<Span<'a, 'b>, (Span<'a, 'b>, RVal<'a, 'b>)> {
+fn assignment<'a>(
+    input: Span<'a>,
+    prior_asn: &HashMap<&str, RVal<'a>>,
+) -> IResult<Span<'a>, (Span<'a>, RVal<'a>)> {
     let quoted_rval_parser = |i| quoted_rval(i, prior_asn);
     let unquoted_rval_parser = |i| unquoted_rval(i, prior_asn);
     preceded(
@@ -114,10 +114,10 @@ fn assignment<'a: 'c, 'b, 'c>(
     )(input)
 }
 
-fn quoted_rval<'a: 'c, 'b, 'c>(
-    input: Span<'a, 'b>,
-    prior_asgn: &'c HashMap<&'a str, RVal<'a, 'b>>,
-) -> IResult<Span<'a, 'b>, RVal<'a, 'b>> {
+fn quoted_rval<'a>(
+    input: Span<'a>,
+    prior_asgn: &HashMap<&str, RVal<'a>>,
+) -> IResult<Span<'a>, RVal<'a>> {
     map(
         terminated(
             preceded(
@@ -136,10 +136,10 @@ fn quoted_rval<'a: 'c, 'b, 'c>(
     )(input)
 }
 
-fn unquoted_rval<'a: 'c, 'b, 'c>(
-    input: Span<'a, 'b>,
-    prior_asgn: &'c HashMap<&'a str, RVal<'a, 'b>>,
-) -> IResult<Span<'a, 'b>, RVal<'a, 'b>> {
+fn unquoted_rval<'a>(
+    input: Span<'a>,
+    prior_asgn: &HashMap<&str, RVal<'a>>,
+) -> IResult<Span<'a>, RVal<'a>> {
     map(
         preceded(
             multispace0,
@@ -158,11 +158,11 @@ fn unquoted_rval<'a: 'c, 'b, 'c>(
     )(input)
 }
 
-fn literal<'a, 'b>(input: Span<'a, 'b>) -> IResult<Span<'a, 'b>, Value<'a, 'b>> {
+fn literal(input: Span<'_>) -> IResult<Span<'_>, Value<'_>> {
     map(is_not("$\""), Value::Literal)(input)
 }
 
-fn variable<'a, 'b>(input: Span<'a, 'b>) -> IResult<Span<'a, 'b>, Span<'a, 'b>> {
+fn variable(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
     let leading_symbol = |c| is_alphabetic(c as u8);
     let trailing_symbol = |c| is_alphanumeric(c as u8) || c == '_';
     recognize(preceded(
@@ -171,7 +171,7 @@ fn variable<'a, 'b>(input: Span<'a, 'b>) -> IResult<Span<'a, 'b>, Span<'a, 'b>> 
     ))(input)
 }
 
-fn expansion<'a, 'b>(input: Span<'a, 'b>) -> IResult<Span<'a, 'b>, Value<'a, 'b>> {
+fn expansion(input: Span<'_>) -> IResult<Span<'_>, Value<'_>> {
     map(
         preceded(
             tag("$"),
@@ -192,7 +192,7 @@ mod tests {
     use super::*;
     use lazy_static::lazy_static;
     use nom::Slice;
-    fn null_span(text: &'static str) -> Span<'static, 'static> {
+    fn null_span(text: &'static str) -> Span<'static> {
         lazy_static! {
             static ref NULL_PATH: &'static Path = Path::new("");
         }

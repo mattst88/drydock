@@ -32,7 +32,7 @@ rental! {
         #[rental(debug, covariant)]
         pub struct ParsedFile {
             file_map: Box<FileMap>,
-            map: HashMap<&'file_map str, RVal<'file_map, 'file_map>>,
+            map: HashMap<&'file_map str, RVal<'file_map>>,
         }
     }
 }
@@ -161,12 +161,12 @@ impl ProfileKey {
     }
 }
 
-pub struct ValueMuncher<'a, 'path> {
-    output_tokens: Vec<Span<'a, 'path>>,
-    exploration_stack: Vec<(Value<'a, 'path>, &'a ProfileKey)>,
+pub struct ValueMuncher<'a> {
+    output_tokens: Vec<Span<'a>>,
+    exploration_stack: Vec<(Value<'a>, &'a ProfileKey)>,
 }
 
-impl<'a, 'path> ValueMuncher<'a, 'path> {
+impl<'a> ValueMuncher<'a> {
     pub fn new() -> Self {
         Self {
             output_tokens: Default::default(),
@@ -174,11 +174,7 @@ impl<'a, 'path> ValueMuncher<'a, 'path> {
         }
     }
 
-    pub fn feed<'b>(
-        &'b mut self,
-        rval: &'a RVal<'a, 'path>,
-        profile: &'a ProfileKey,
-    ) -> MuncherState<'a, 'path> {
+    pub fn feed(&mut self, rval: &RVal<'a>, profile: &'a ProfileKey) -> MuncherState<'a> {
         for val in rval.vals.clone().into_iter().rev() {
             self.exploration_stack.push((val, profile));
         }
@@ -186,7 +182,7 @@ impl<'a, 'path> ValueMuncher<'a, 'path> {
         self.munch()
     }
 
-    fn munch<'b>(&'b mut self) -> MuncherState<'a, 'path> {
+    fn munch(&mut self) -> MuncherState<'a> {
         loop {
             match self.exploration_stack.pop() {
                 None => return MuncherState::Done(std::mem::take(&mut self.output_tokens)),
@@ -205,9 +201,9 @@ impl<'a, 'path> ValueMuncher<'a, 'path> {
     }
 }
 
-pub enum MuncherState<'a, 'path> {
-    Need((Span<'a, 'path>, &'a ProfileKey)),
-    Done(Vec<Span<'a, 'path>>),
+pub enum MuncherState<'a> {
+    Need((Span<'a>, &'a ProfileKey)),
+    Done(Vec<Span<'a>>),
 }
 
 static INCREMENTAL_VARIABLES: &[&str] = &[

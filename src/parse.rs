@@ -49,7 +49,7 @@ pub fn parse_parent_file(body: Span) -> anyhow::Result<Vec<(Option<String>, Path
 
 /// Parse layout.conf and return only the overlay's name for now.
 /// repo-name = chromiumos
-pub fn parse_layout_conf<'a, 'b>(body: Span<'a, 'b>) -> anyhow::Result<&'a str> {
+pub fn parse_layout_conf(body: Span<'_>) -> anyhow::Result<&str> {
     LAYOUT_REGEX
         .captures(body.fragment())
         .map(|m| m.get(1))
@@ -63,7 +63,7 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    fn null_span(text: &'static str) -> Span<'static, 'static> {
+    fn null_span(text: &'static str) -> Span<'static> {
         lazy_static! {
             static ref NULL_PATH: &'static Path = Path::new("");
         }

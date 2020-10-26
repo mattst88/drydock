@@ -7,17 +7,17 @@ use nom::{
 
 use super::profile_parser::Span;
 
-pub enum TokenState<'a, 'b> {
-    Enabled(Span<'a, 'b>),
-    Disabled(Span<'a, 'b>),
+pub enum TokenState<'a> {
+    Enabled(Span<'a>),
+    Disabled(Span<'a>),
 }
 
-pub struct TokenSet<'a, 'b> {
-    pub glob: Option<Span<'a, 'b>>,
-    pub token_states: BTreeMap<&'a str, TokenState<'a, 'b>>,
+pub struct TokenSet<'a> {
+    pub glob: Option<Span<'a>>,
+    pub token_states: BTreeMap<&'a str, TokenState<'a>>,
 }
 
-impl<'a, 'b> Default for TokenSet<'a, 'b> {
+impl Default for TokenSet<'_> {
     fn default() -> Self {
         TokenSet {
             glob: Default::default(),
@@ -26,11 +26,11 @@ impl<'a, 'b> Default for TokenSet<'a, 'b> {
     }
 }
 
-impl<'a, 'b> TokenSet<'a, 'b> {
+impl<'a> TokenSet<'a> {
     pub fn new() -> Self {
         Self::default()
     }
-    pub fn from_raw_spans<'c>(raw_spans: &'c [Span<'a, 'b>]) -> Self {
+    pub fn from_raw_spans(raw_spans: &[Span<'a>]) -> Self {
         let ws_enabled_token = preceded(multispace0, enabled_token);
         let ws_disabled_token = preceded(multispace0, disabled_token);
         let ws_reset_glob = preceded(multispace0, reset_glob);
@@ -72,7 +72,7 @@ impl<'a, 'b> TokenSet<'a, 'b> {
         self.token_states.append(&mut token_states);
     }
 
-    pub fn into_spans(self) -> Vec<Span<'a, 'b>> {
+    pub fn into_spans(self) -> Vec<Span<'a>> {
         self.token_states
             .into_iter()
             .filter_map(|(_, v)| match v {
@@ -83,19 +83,19 @@ impl<'a, 'b> TokenSet<'a, 'b> {
     }
 }
 
-fn token<'a, 'b>(input: Span<'a, 'b>) -> IResult<Span<'a, 'b>, Span<'a, 'b>> {
+fn token(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
     let not_ws = |c: char| !c.is_ascii_whitespace();
     take_while1(not_ws)(input)
 }
 
-fn enabled_token<'a, 'b>(input: Span<'a, 'b>) -> IResult<Span<'a, 'b>, Span<'a, 'b>> {
+fn enabled_token(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
     token(input)
 }
 
-fn disabled_token<'a, 'b>(input: Span<'a, 'b>) -> IResult<Span<'a, 'b>, Span<'a, 'b>> {
+fn disabled_token(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
     preceded(tag("-"), token)(input)
 }
 
-fn reset_glob<'a, 'b>(input: Span<'a, 'b>) -> IResult<Span<'a, 'b>, Span<'a, 'b>> {
+fn reset_glob(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
     tag("-*")(input)
 }
