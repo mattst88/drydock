@@ -102,7 +102,7 @@ fn main() -> anyhow::Result<()> {
         ("dump_debug", Some(sub_args)) => commands::dump_debug(&config, sub_args)?,
         ("eval", Some(sub_args)) => commands::eval(&config, sub_args)?,
         ("parents", Some(sub_args)) => commands::parents(&config, sub_args)?,
-        _ => unimplemented!(),
+        _ => println!("{}", args.usage()),
     };
 
     Ok(())

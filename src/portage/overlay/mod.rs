@@ -145,11 +145,12 @@ impl TryFrom<&Path> for Overlay {
 }
 
 pub fn build_overlay_map(config: &config::Config) -> anyhow::Result<OverlayTable> {
-    let mut walker = ignore::WalkBuilder::new(".");
+    let mut paths = config.get_array("overlay_paths").unwrap().into_iter();
+    let mut walker = ignore::WalkBuilder::new(paths.next().unwrap_or_default().into_str().unwrap());
     walker.filter_entry(|dir| dir.path().is_dir());
     walker.max_depth(Some(1));
 
-    for overlay_path in config.get_array("overlay_paths").unwrap() {
+    for overlay_path in paths {
         let p = overlay_path.into_str().unwrap();
         walker.add(p);
     }
