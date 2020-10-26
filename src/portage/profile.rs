@@ -23,10 +23,16 @@ rental! {
         use super::*;
 
         #[rental(debug, covariant)]
-        pub struct ParsedFile {
+        pub struct FileMap {
             path: PathBuf,
             raw: String,
-            map: HashMap<&'raw str, RVal<'raw, 'path>>,
+            span: LocatedSpan<&'raw str, &'path Path>,
+        }
+
+        #[rental(debug, covariant)]
+        pub struct ParsedFile {
+            file_map: Box<FileMap>,
+            map: HashMap<&'file_map str, RVal<'file_map, 'file_map>>,
         }
     }
 }
@@ -50,7 +56,8 @@ impl Profile {
     }
 
     pub fn get<S: AsRef<str>>(&self, key: S) -> Option<&RVal> {
-        self.conf.as_ref().unwrap().suffix().get(key.as_ref())
+        let conf: &rentals::ParsedFile = self.conf.as_ref().unwrap();
+        conf.suffix().get(key.as_ref())
     }
 
     pub fn parse_parents(profile_path: &Path) -> anyhow::Result<Vec<(Option<String>, PathBuf)>> {
@@ -72,14 +79,25 @@ impl Profile {
                 } else {
                     String::new()
                 };
-                match rentals::ParsedFile::try_new(
+
+                match rentals::FileMap::try_new(
                     conf_path,
                     |_| Ok(contents),
-                    |s, p| full_parse(LocatedSpan::new_extra(s, p)),
+                    |s, p| {
+                        let span: anyhow::Result<_> = Ok(LocatedSpan::new_extra(s, p));
+                        span
+                    },
                 ) {
-                    Ok(rentref) => {
-                        self.conf = Some(rentref);
-                        Ok(())
+                    Ok(file_map) => {
+                        match rentals::ParsedFile::try_new(Box::new(file_map), |filemap| {
+                            full_parse(*filemap.suffix())
+                        }) {
+                            Ok(rentref) => {
+                                self.conf = Some(rentref);
+                                Ok(())
+                            }
+                            Err(e) => panic!(e),
+                        }
                     }
                     Err(e) => panic!(e),
                 }
