@@ -24,9 +24,7 @@ pub fn generate_default() -> anyhow::Result<()> {
     std::io::stdin().read_line(&mut input)?;
 
     // Replace a leading tilde with the user's home directory.
-    if input.starts_with('~') {
-        input = input.replace("~", env::var("HOME")?.as_str());
-    }
+    input = input.replace("~", env::var("HOME")?.as_str());
 
     input = input.trim().to_owned();
 
