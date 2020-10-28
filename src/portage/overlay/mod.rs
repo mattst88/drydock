@@ -145,15 +145,12 @@ impl TryFrom<&Path> for Overlay {
 }
 
 pub fn build_overlay_map(config: &config::Config) -> anyhow::Result<OverlayTable> {
-    let mut paths = config.get_array("overlay_paths").unwrap().into_iter();
-    let mut walker = ignore::WalkBuilder::new(paths.next().unwrap_or_default().into_str().unwrap());
+    let path = config
+        .get_str("src_path")
+        .with_context(|| "Unable to read the `src_path` variable in your configuration.")?;
+    let mut walker = ignore::WalkBuilder::new(path);
     walker.filter_entry(|dir| dir.path().is_dir());
-    walker.max_depth(Some(1));
-
-    for overlay_path in paths {
-        let p = overlay_path.into_str().unwrap();
-        walker.add(p);
-    }
+    walker.max_depth(Some(2));
 
     let mut table = OverlayTableBuilder::new();
 

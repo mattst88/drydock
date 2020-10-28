@@ -1,4 +1,4 @@
-use std::{cmp::max, collections::HashMap, fmt::Write, path::PathBuf};
+use std::{cmp::max, collections::HashMap, ffi::OsString, fmt::Write};
 use std::{collections::BTreeSet, str::FromStr};
 
 use anyhow::bail;
@@ -175,11 +175,17 @@ fn blame_format(tokens: &[Span], config: &config::Config) {
     println!("{}", formatted);
 }
 
-fn span_label(p: &Span, config: &config::Config) -> String {
-    for common_path in config.get_array("overlay_paths").unwrap() {
-        let common_prefix: PathBuf = PathBuf::from(common_path.into_str().unwrap());
-        if let Ok(new_path) = p.extra.strip_prefix(common_prefix) {
-            return format!("{}:L{}", new_path.display(), p.location_line());
+fn span_label(p: &Span, _config: &config::Config) -> String {
+    let profile_dir: OsString = OsString::from("profiles");
+    let mut ancestors = p.extra.ancestors();
+
+    while let Some(parent) = ancestors.next() {
+        if let Some(ext) = parent.file_name() {
+            if ext == profile_dir {
+                let prefix = ancestors.nth(1).unwrap();
+                let truncated_path = p.extra.strip_prefix(prefix).unwrap();
+                return format!("{}:L{}", truncated_path.display(), p.location_line());
+            }
         }
     }
 

@@ -1,9 +1,8 @@
 mod commands;
+mod config;
 mod graph;
 mod parse;
 mod portage;
-
-use std::env;
 
 use clap::{App, Arg, SubCommand};
 
@@ -11,11 +10,6 @@ use clap::{App, Arg, SubCommand};
 extern crate rental;
 
 fn main() -> anyhow::Result<()> {
-    let config_path = env::var("XDG_CONFIG_HOME").unwrap_or(env::var("HOME").unwrap() + "/.config")
-        + "/drydock/config.toml";
-    let mut config = config::Config::new();
-    config.merge(config::File::with_name(&config_path)).unwrap();
-
     let args = App::new("drydock")
         .version("0.0.1")
         .about("A tool for Portage profile analysis and introspection.")
@@ -95,9 +89,27 @@ fn main() -> anyhow::Result<()> {
                         .help("The target overlay to query."),
                 ),
         )
+        .subcommand(
+            SubCommand::with_name("config")
+                .about("Set configuration values for drydock.")
+                .arg(
+                    Arg::with_name("default")
+                        .long("default")
+                        .takes_value(false)
+                        .required(true)
+                        .help("Generate a default configuration file."),
+                ),
+        )
         .get_matches();
 
+    if let ("config", _) = args.subcommand() {
+        crate::config::generate_default()?
+    }
+
+    let config = crate::config::get()?;
+
     match args.subcommand() {
+        ("config", _) => {}
         ("blame", Some(sub_args)) => commands::blame(&config, sub_args)?,
         ("dump_debug", Some(sub_args)) => commands::dump_debug(&config, sub_args)?,
         ("eval", Some(sub_args)) => commands::eval(&config, sub_args)?,
