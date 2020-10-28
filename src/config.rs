@@ -46,6 +46,7 @@ fn write_config_to_file(file_path: &Path, config: &Config) -> anyhow::Result<()>
         .try_into::<HashMap<String, String>>()
         .unwrap();
     let config = toml::to_string(&config)?;
+    fs::create_dir_all(file_path.parent().unwrap())?;
     let mut file = fs::File::create(&file_path)?;
     file.write_all(config.as_bytes())?;
     Ok(())
