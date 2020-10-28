@@ -212,11 +212,11 @@ impl OverlayTable {
     pub fn visit_arborescence_postorder<'a>(
         &'a self,
         profile_key: &'a ProfileKey,
-        mut visit: impl FnMut(&'a ProfileKey) -> anyhow::Result<()>,
+        visit: &mut impl FnMut(&'a ProfileKey) -> anyhow::Result<()>,
     ) -> anyhow::Result<()> {
         let p = self.get(profile_key).unwrap();
         for parent_key in p.parents.iter() {
-            self.visit_arborescence_postorder(parent_key, &mut visit)?;
+            self.visit_arborescence_postorder(parent_key, visit)?;
         }
         visit(profile_key)?;
         Ok(())
