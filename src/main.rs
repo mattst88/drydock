@@ -11,7 +11,7 @@ extern crate rental;
 
 fn main() -> anyhow::Result<()> {
     let args = App::new("drydock")
-        .version("0.0.1")
+        .version("0.0.2")
         .about("A tool for Portage profile analysis and introspection.")
         .subcommand(
             SubCommand::with_name("parents")
