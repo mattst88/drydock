@@ -6,17 +6,17 @@ use clap::ArgMatches;
 use colored::Colorize;
 use source_span::{fmt::Style, Position};
 
-use crate::{graph, portage::profile_parser::Span, portage::variables::TokenState};
+use crate::{config::Config, graph, portage::profile_parser::Span, portage::variables::TokenState};
 
 use crate::portage::{overlay::build_overlay_map, ProfileKey};
 
-pub fn parents(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
+pub fn parents(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
     let targets = sub_args.values_of("profile").unwrap();
     let targets: Vec<_> = targets
         .map(|target| ProfileKey::from_str(target).unwrap())
         .collect();
 
-    let overlay_table = build_overlay_map(&config)?;
+    let overlay_table = build_overlay_map(config)?;
 
     if sub_args.is_present("tree") {
         // print_profile_tree(0, &profile, &profile_map);
@@ -30,12 +30,12 @@ pub fn parents(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result
     Ok(())
 }
 
-pub fn eval(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
+pub fn eval(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
     let target = sub_args.value_of("profile").unwrap();
     let profile = ProfileKey::from_str(target)?;
 
     let target_var = sub_args.value_of("variable").unwrap();
-    let overlay_table = build_overlay_map(&config)?;
+    let overlay_table = build_overlay_map(config)?;
     if overlay_table.is_incremental_variable(&profile, target_var) {
         let vals = overlay_table.compute_variable(&profile, target_var)?;
 
@@ -51,13 +51,13 @@ pub fn eval(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<()
     Ok(())
 }
 
-pub fn blame(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
+pub fn blame(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
     let target = sub_args.value_of("profile").unwrap();
     let profile = ProfileKey::from_str(target)?;
 
     let mut target_values = sub_args.values_of("variable").unwrap();
     let target_var = target_values.next().unwrap();
-    let overlay_table = build_overlay_map(&config)?;
+    let overlay_table = build_overlay_map(config)?;
     if overlay_table.is_incremental_variable(&profile, target_var) {
         if let Some(subvar) = target_values.next() {
             let sets = overlay_table.compute_incremental_variable(&profile, target_var)?;
@@ -119,7 +119,7 @@ pub fn blame(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<(
     Ok(())
 }
 
-pub fn dump_debug(config: &config::Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
+pub fn dump_debug(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
     let target = sub_args.value_of("overlay").unwrap();
     let overlay_table = build_overlay_map(&config)?;
 
@@ -136,7 +136,7 @@ fn simple_format(tokens: &[Span]) -> String {
     output
 }
 
-fn blame_format(tokens: &[Span], config: &config::Config) {
+fn blame_format(tokens: &[Span], config: &Config) {
     let mut seen = HashMap::new();
     for t in tokens {
         let idx = seen.len();
@@ -175,7 +175,7 @@ fn blame_format(tokens: &[Span], config: &config::Config) {
     println!("{}", formatted);
 }
 
-fn span_label(p: &Span, _config: &config::Config) -> String {
+fn span_label(p: &Span, _config: &Config) -> String {
     let profile_dir: OsString = OsString::from("profiles");
     let mut ancestors = p.extra.ancestors();
 

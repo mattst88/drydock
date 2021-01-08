@@ -4,10 +4,10 @@ mod graph;
 mod parse;
 mod portage;
 
-use clap::{App, Arg, SubCommand};
-
 #[macro_use]
 extern crate rental;
+
+use clap::{App, Arg, SubCommand};
 
 fn main() -> anyhow::Result<()> {
     let args = App::new("drydock")

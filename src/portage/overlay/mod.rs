@@ -13,9 +13,9 @@ use super::{
     profile::is_builtin_incremental_variable, profile_parser::Span, variables::TokenSet, Profile,
     ProfileKey,
 };
-use crate::parse;
 use crate::portage::profile::{MuncherState, ValueMuncher};
 use crate::portage::profile_parser::RVal;
+use crate::{config::Config, parse};
 
 use anyhow::{anyhow, Context};
 use nom_locate::LocatedSpan;
@@ -144,11 +144,8 @@ impl TryFrom<&Path> for Overlay {
     }
 }
 
-pub fn build_overlay_map(config: &config::Config) -> anyhow::Result<OverlayTable> {
-    let path = config
-        .get_str("src_path")
-        .with_context(|| "Unable to read the `src_path` variable in your configuration.")?;
-    let mut walker = ignore::WalkBuilder::new(path);
+pub fn build_overlay_map(config: &Config) -> anyhow::Result<OverlayTable> {
+    let mut walker = ignore::WalkBuilder::new(&config.src_path);
     walker.filter_entry(|dir| dir.path().is_dir());
     walker.max_depth(Some(2));
 
