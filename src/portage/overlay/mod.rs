@@ -208,7 +208,9 @@ impl OverlayTable {
         profile_key: &'a ProfileKey,
         visit: &mut impl FnMut(&'a ProfileKey) -> anyhow::Result<()>,
     ) -> anyhow::Result<()> {
-        let p = self.get(profile_key).unwrap();
+        let p = self
+            .get(profile_key)
+            .ok_or_else(|| construct_missing_profile_error(self, profile_key))?;
         for parent_key in p.parents.iter() {
             self.visit_arborescence_postorder(parent_key, visit)?;
         }
@@ -332,5 +334,70 @@ impl OverlayTable {
 impl Default for OverlayTable {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Helper function to construct an anyhow::Result with an informative error message when
+/// the lookup of a ProfileKey fails. We return the most similar overlay name as a suggestion
+/// where 'similarity' is measured by the normalized Damerau-Levenshtein distance.
+fn construct_missing_profile_error(
+    table: &OverlayTable,
+    profile_key: &ProfileKey,
+) -> anyhow::Error {
+    match table.map.get(profile_key.overlay()) {
+        // An overlay with the requested name exists, therefore the issue is that
+        // a matching profile wasn't found. So we look for the profile with the most
+        // similar name.
+        Some(o) => {
+            let nearest_profile = match o.profiles.keys().max_by_key(|s| {
+                float_ord::FloatOrd(strsim::normalized_damerau_levenshtein(
+                    profile_key.profile(),
+                    s,
+                ))
+            }) {
+                Some(p) => p,
+                None => {
+                    return anyhow!(
+                        "The profile {} was requested, but the overlay {} contains no profiles.\
+                         Full path of the overlay: {}",
+                        profile_key.full_name(),
+                        profile_key.overlay(),
+                        o.path.display()
+                    )
+                }
+            };
+
+            anyhow!(
+                "The overlay {} was found, but the profile {} does not exist. Did you mean: {}",
+                profile_key.overlay(),
+                profile_key.profile(),
+                nearest_profile
+            )
+        }
+
+        // An overlay with the requested name doesn't exist.
+        // Find the most similar overlay name and suggest it as an alternative.
+        None => {
+            let nearest_overlay = match table.map.keys().max_by_key(|s| {
+                float_ord::FloatOrd(strsim::normalized_damerau_levenshtein(
+                    profile_key.overlay(),
+                    s,
+                ))
+            }) {
+                Some(p) => p,
+                None => {
+                    return anyhow!(
+                        "No overlays were found! Ensure your config points at a valid checkout."
+                    )
+                }
+            };
+
+            anyhow!(
+                "The overlay \"{}\" was not found. Did you mean: {}:{}",
+                profile_key.overlay(),
+                nearest_overlay,
+                profile_key.profile()
+            )
+        }
     }
 }
