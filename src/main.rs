@@ -13,6 +13,12 @@ fn main() -> anyhow::Result<()> {
     let args = App::new("drydock")
         .version("0.0.3")
         .about("A tool for Portage profile analysis and introspection.")
+        .arg(
+            Arg::with_name("config_file")
+            .long("config-file")
+            .takes_value(true)
+            .help("Path to the configuration file to use.")
+        )
         .subcommand(
             SubCommand::with_name("parents")
                 .about("Show the inheritance tree for the target profile.")
@@ -106,7 +112,7 @@ fn main() -> anyhow::Result<()> {
         crate::config::generate_default()?
     }
 
-    let config = crate::config::get()?;
+    let config = crate::config::get(&args)?;
 
     match args.subcommand() {
         ("config", _) => {}

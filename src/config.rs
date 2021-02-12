@@ -7,9 +7,13 @@ use std::{
 
 use anyhow::Context;
 
-pub fn get() -> anyhow::Result<Config> {
-    let config_path = env::var("XDG_CONFIG_HOME").unwrap_or(env::var("HOME")? + "/.config")
-        + "/drydock/config.toml";
+pub fn get(args: &clap::ArgMatches) -> anyhow::Result<Config> {
+    let config_path = if let Some(s) = args.value_of("config_file") {
+        s.to_string()
+    } else {
+        get_default_config_path()?
+    };
+
     let mut config = config::Config::new();
     config.merge(config::File::with_name(&config_path)).with_context(
         || "Unable to find a configuration file. Have you tried running `drydock config --default`?")?;
@@ -79,4 +83,11 @@ impl Config {
             src_path: src_path.into(),
         })
     }
+}
+
+fn get_default_config_path() -> anyhow::Result<String> {
+    Ok(match env::var("XDG_CONFIG_HOME") {
+        Ok(s) => s,
+        Err(_) => env::var("HOME")? + "/.config",
+    } + "/drydock/config.toml")
 }
