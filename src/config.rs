@@ -20,10 +20,19 @@ pub fn get(args: &clap::ArgMatches) -> anyhow::Result<Config> {
     Config::from_dynamic_config(&config)
 }
 
-pub fn generate_default() -> anyhow::Result<()> {
-    let home = env::var("HOME")?;
-    let config_path =
-        env::var("XDG_CONFIG_HOME").unwrap_or(home.clone() + "/.config") + "/drydock/config.toml";
+pub fn generate_default(args: &clap::ArgMatches) -> anyhow::Result<()> {
+    let home = env::var("HOME").with_context(|| {
+        "The HOME variable must be defined in the environment \
+        in order to generate a default configuration file."
+            .to_string()
+    })?;
+
+    let config_path = if let Some(s) = args.value_of("config_file") {
+        s.to_string()
+    } else {
+        get_default_config_path()?
+    };
+
     let mut config = config::Config::new();
     let mut input = String::new();
 

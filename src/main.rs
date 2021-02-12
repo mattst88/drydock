@@ -109,7 +109,7 @@ fn main() -> anyhow::Result<()> {
         .get_matches();
 
     if let ("config", _) = args.subcommand() {
-        crate::config::generate_default()?
+        crate::config::generate_default(&args)?
     }
 
     let config = crate::config::get(&args)?;
