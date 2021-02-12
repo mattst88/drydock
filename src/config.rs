@@ -17,6 +17,11 @@ pub fn get(args: &clap::ArgMatches) -> anyhow::Result<Config> {
     let mut config = config::Config::new();
     config.merge(config::File::with_name(&config_path)).with_context(
         || "Unable to find a configuration file. Have you tried running `drydock config --default`?")?;
+
+    if let Some(src_path) = args.value_of("src_path") {
+        config.set("src_path", src_path)?;
+    }
+
     Config::from_dynamic_config(&config)
 }
 
