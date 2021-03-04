@@ -11,7 +11,7 @@ use clap::{App, Arg, SubCommand};
 
 fn main() -> anyhow::Result<()> {
     let args = App::new("drydock")
-        .version("0.0.3")
+        .version("0.0.4")
         .about("A tool for Portage profile analysis and introspection.")
         .after_help("Tip: The full `--help` flag gives more verbose explanations of options.")
         .arg(
