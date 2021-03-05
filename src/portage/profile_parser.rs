@@ -20,6 +20,9 @@ use nom_locate::LocatedSpan;
 pub type Span<'a> = LocatedSpan<&'a str, &'a Path>;
 pub type ValueMap<'a> = HashMap<&'a str, RVal<'a>>;
 
+/// An enum corresponding to the values that can be assigned to a variable. The two variants
+/// correspond to either a literal string or an in-place variable expansion (e.g. "${FOO}").
+/// A variable expansion can then recursively contain literal strings and more variable expansions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value<'a> {
     Literal(Span<'a>),
@@ -47,6 +50,10 @@ impl fmt::Display for Value<'_> {
     }
 }
 
+/// An [RVal] is the complete expression on the right-hand side of a variable assignment, e.g.
+/// `FOO="spam $HAM eggs"` would have an [RVal] of `"spam $HAM eggs"`. In this example, the
+/// [RVal] would have the [Value]s of a Literal("spam "), an Expansion{name: "HAM"}, and another
+/// Literal(" eggs").
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RVal<'a> {
     pub vals: Vec<Value<'a>>,
@@ -73,6 +80,8 @@ impl fmt::Display for RVal<'_> {
     }
 }
 
+/// Parser entry point for the entirety of a `make.conf` file. Expects the full body of the file
+/// as a single [Span] as input.
 pub fn full_parse(mut input: Span<'_>) -> anyhow::Result<ValueMap<'_>> {
     let mut assignment_map: ValueMap = HashMap::new();
 
@@ -92,10 +101,12 @@ pub fn full_parse(mut input: Span<'_>) -> anyhow::Result<ValueMap<'_>> {
     Ok(assignment_map)
 }
 
+/// Parser to recognize a commented line in a `make.conf` file.
 pub fn comment_line(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
     recognize(preceded(complete::char('#'), complete::not_line_ending))(input)
 }
 
+/// Parser to recognize a full assignment expression, e.g. `FOO="$BAR $BAZ"`.
 fn assignment<'a>(
     input: Span<'a>,
     prior_asn: &HashMap<&str, RVal<'a>>,
@@ -114,6 +125,10 @@ fn assignment<'a>(
     )(input)
 }
 
+/// Parser to recognize a properly (according to the Package Manager Spec) quoted [RVal]
+/// https://dev.gentoo.org/~ulm/pms/head/pms.html#x1-470005.2.4
+///
+/// Line continuations are not currently handled properly.
 fn quoted_rval<'a>(
     input: Span<'a>,
     prior_asgn: &HashMap<&str, RVal<'a>>,
@@ -136,6 +151,8 @@ fn quoted_rval<'a>(
     )(input)
 }
 
+/// Parser to recognize unquoted rvalues, as much as possible. These are violations of the PMS
+/// but a few usages existed in the CrOS tree at the time of writing.
 fn unquoted_rval<'a>(
     input: Span<'a>,
     prior_asgn: &HashMap<&str, RVal<'a>>,
@@ -158,10 +175,12 @@ fn unquoted_rval<'a>(
     )(input)
 }
 
+/// Parser to recognize string literals.
 fn literal(input: Span<'_>) -> IResult<Span<'_>, Value<'_>> {
     map(is_not("$\""), Value::Literal)(input)
 }
 
+/// Parser to recognize variable names.
 fn variable(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
     let leading_symbol = |c| is_alphabetic(c as u8);
     let trailing_symbol = |c| is_alphanumeric(c as u8) || c == '_';
@@ -171,6 +190,7 @@ fn variable(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
     ))(input)
 }
 
+/// Parser to recognize variable expansions in rvalues.
 fn expansion(input: Span<'_>) -> IResult<Span<'_>, Value<'_>> {
     map(
         preceded(

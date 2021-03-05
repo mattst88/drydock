@@ -22,6 +22,11 @@ lazy_static! {
         regex::Regex::new(r"(?m)^repo-name\s=\s([A-Za-z0-9_-]+)").unwrap();
 }
 
+/// Parser for a Portage profile 'parents' file. These files are a newline-delimited list
+/// of either relative profile paths (e.g. "../..") within the same overlay or absolute
+/// profile paths with a leading overlay name, e.g. "some-overlay:path/to/a/profile"
+/// Note that the leading overlay name is *not* a path: it is the `repo-name` variable
+/// declared in an overlay's layout.conf
 pub fn parse_parent_file(body: Span) -> anyhow::Result<Vec<(Option<String>, PathBuf)>> {
     many1(preceded(
         many0(preceded(multispace0, parse::comment_line)), // comment or blank line

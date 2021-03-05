@@ -7,6 +7,8 @@ use std::{
 
 use anyhow::Context;
 
+/// Load the configuration file from disk and merge it with options specified from
+/// the command line.
 pub fn get(args: &clap::ArgMatches) -> anyhow::Result<Config> {
     let config_path = if let Some(s) = args.value_of("config_file") {
         s.to_string()
@@ -25,6 +27,9 @@ pub fn get(args: &clap::ArgMatches) -> anyhow::Result<Config> {
     Config::from_dynamic_config(&config)
 }
 
+/// Generate a default configuration file under `$XDG_CONFIG_HOME` or `~/.config/drydock`
+/// The default checkout path is `~/chromiumos/src`, if this path doesn't exist then the
+/// user is prompted for the path to their checkout.
 pub fn generate_default(args: &clap::ArgMatches) -> anyhow::Result<()> {
     let home = env::var("HOME").with_context(|| {
         "The HOME variable must be defined in the environment \
@@ -74,6 +79,7 @@ pub fn generate_default(args: &clap::ArgMatches) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Helper function to serialize a [config::Config] to a TOML file.
 fn write_config_to_file(file_path: &Path, config: &config::Config) -> anyhow::Result<()> {
     let config = config
         .clone()
@@ -86,11 +92,13 @@ fn write_config_to_file(file_path: &Path, config: &config::Config) -> anyhow::Re
     Ok(())
 }
 
+/// A blob of all options and configuration specific to drydock.
 pub struct Config {
     pub src_path: PathBuf,
 }
 
 impl Config {
+    /// Create a drydock-specific [Config] struct from a dynamic [config::Config]
     pub fn from_dynamic_config(conf: &config::Config) -> anyhow::Result<Self> {
         let src_path = conf.get_str("src_path")?;
         Ok(Config {
@@ -99,6 +107,8 @@ impl Config {
     }
 }
 
+/// Helper function to hide away the details of probing the various paths a
+/// configuration file might live at.
 fn get_default_config_path() -> anyhow::Result<String> {
     Ok(match env::var("XDG_CONFIG_HOME") {
         Ok(s) => s,

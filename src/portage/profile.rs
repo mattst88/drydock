@@ -22,6 +22,8 @@ rental! {
     mod rentals {
         use super::*;
 
+        /// A self-referential struct containing the path to a file, the contents of that file,
+        /// and a [LocatedSpan] holding borrows of those two owned fields.
         #[rental(debug, covariant)]
         pub struct FileMap {
             path: PathBuf,
@@ -29,6 +31,8 @@ rental! {
             span: LocatedSpan<&'raw str, &'path Path>,
         }
 
+        /// A self-referential struct containing a [FileMap] and a [HashMap] of the parsed
+        /// variable definitions from that file.
         #[rental(debug, covariant)]
         pub struct ParsedFile {
             file_map: Box<FileMap>,
@@ -37,6 +41,10 @@ rental! {
     }
 }
 
+/// A struct corresponding to a single instance of a Portage profile.
+///
+/// Carries its own name (as defined in layout.conf), the [ProfileKey]s of its parents,
+/// its full filesystem path, and any parsed file contents if they have been evaluated yet.
 #[derive(Debug)]
 pub struct Profile {
     pub name: String,
@@ -46,6 +54,8 @@ pub struct Profile {
 }
 
 impl Profile {
+    /// Create a new instance from a profile name and a full filesystem path.
+    /// Doesn't yet validate if the name and full path are coherent.
     pub fn new<T: Into<String>>(name: T, full_path: PathBuf) -> Self {
         Self {
             name: name.into(),
@@ -55,11 +65,13 @@ impl Profile {
         }
     }
 
+    /// Look up a variable definition in this profile's [rentals::ParsedFile].
     pub fn get<S: AsRef<str>>(&self, key: S) -> Option<&RVal> {
         let conf: &rentals::ParsedFile = self.conf.as_ref().unwrap();
         conf.suffix().get(key.as_ref())
     }
 
+    /// Parse the `parents` file of a profile, with a non-existent file signifying no parents.
     pub fn parse_parents(profile_path: &Path) -> anyhow::Result<Vec<(Option<String>, PathBuf)>> {
         let file_path = profile_path.join(PARENT_FILE);
         if !file_path.exists() {
@@ -69,6 +81,7 @@ impl Profile {
         parse::parse_parent_file(Span::new_extra(&contents, file_path.as_path()))
     }
 
+    /// Load a `make.conf` or `make.defaults` file in this profile if it exists and parse it.
     pub fn parse_conf(&mut self) -> anyhow::Result<()> {
         match self.conf {
             Some(_) => Ok(()),
@@ -124,6 +137,8 @@ impl PartialEq for Profile {
 impl Eq for Profile {}
 
 /// A type representing the unambiguous name & location of a profile.
+///
+/// Looks like "overlay-name:path/to/profile".
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProfileKey {
     data: String,
@@ -161,6 +176,18 @@ impl ProfileKey {
     }
 }
 
+/// A state machine to turn parsed syntax trees into flattened variables.
+///
+/// Traverses a syntax tree with two stacks: an 'output' stack of processed values and an
+/// 'exploration' stack of values to recursively explore, expand, and push back onto the stack
+/// as needed.
+///
+/// A variable definition may contain references to other variables which might be defined
+/// in an entirely different profile, so while evaluating the definition of a variable we
+/// may need to indicate that a yet-undefined variable has been found. This isn't an error
+/// but we don't have enough information to proceed, so we return a [MuncherState] to the
+/// caller to indicate that they need to supply a definition for a given variable in a given
+/// context.
 pub struct ValueMuncher<'a> {
     output_tokens: Vec<Span<'a>>,
     exploration_stack: Vec<(Value<'a>, &'a ProfileKey)>,
@@ -174,6 +201,7 @@ impl<'a> ValueMuncher<'a> {
         }
     }
 
+    /// Push a [RVal] onto the exploration stack of this [ValueMuncher].
     pub fn feed(&mut self, rval: &RVal<'a>, profile: &'a ProfileKey) -> MuncherState<'a> {
         for val in rval.vals.clone().into_iter().rev() {
             self.exploration_stack.push((val, profile));
@@ -182,6 +210,9 @@ impl<'a> ValueMuncher<'a> {
         self.munch()
     }
 
+    /// Process the exploration stack as much as possible. Returns a [MuncherState] enum indicating
+    /// either that all input was processed or that a variable definition is required from the
+    /// caller.
     fn munch(&mut self) -> MuncherState<'a> {
         loop {
             match self.exploration_stack.pop() {
@@ -201,11 +232,15 @@ impl<'a> ValueMuncher<'a> {
     }
 }
 
+/// Status enum indicating the processing state of a [ValueMuncher]. See the documentation on
+/// [ValueMuncher] for more explanation of these states.
 pub enum MuncherState<'a> {
     Need((Span<'a>, &'a ProfileKey)),
     Done(Vec<Span<'a>>),
 }
 
+/// Portage variables that are defined by the Package Manager Spec to always be treated as
+/// incremental.
 static INCREMENTAL_VARIABLES: &[&str] = &[
     "USE",
     "USE_EXPAND",
@@ -218,6 +253,7 @@ static INCREMENTAL_VARIABLES: &[&str] = &[
     "ENV_UNSET",
 ];
 
+/// Helper function to determine if a variable is a Portage built-in incremental variable.
 pub fn is_builtin_incremental_variable(variable: &str) -> bool {
     INCREMENTAL_VARIABLES.contains(&variable)
 }

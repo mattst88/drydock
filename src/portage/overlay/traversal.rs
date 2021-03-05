@@ -1,3 +1,5 @@
+//! A module containing trait impls for compatibility with petgraph.
+
 use std::{collections::HashSet, slice::Iter};
 
 use petgraph::visit::{Data, DfsPostOrder, IntoNeighbors, Visitable};

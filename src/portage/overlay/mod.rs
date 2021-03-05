@@ -1,3 +1,5 @@
+//! Module containing functions for constructing and traversing Portage overlays and their profiles.
+
 mod builder;
 mod traversal;
 
@@ -20,6 +22,9 @@ use crate::{config::Config, parse};
 use anyhow::{anyhow, Context};
 use nom_locate::LocatedSpan;
 
+/// A struct corresponding to a Portage overlay and all contained profiles.
+///
+/// Full specification: https://dev.gentoo.org/~ulm/pms/head/pms.html#x1-280004
 #[derive(Debug, Hash, Eq, PartialEq)]
 pub struct Overlay {
     pub name: String,
@@ -36,10 +41,12 @@ impl Overlay {
         }
     }
 
+    /// Return the path to the `profiles` directory of this overlay.
     fn profiles_root(&self) -> PathBuf {
         self.path.join("profiles")
     }
 
+    /// Return a [ProfileKey] for a given profile name in this overlay, if it exists.
     #[allow(dead_code)]
     pub fn key_for(&self, profile_name: &str) -> Option<ProfileKey> {
         self.profiles
@@ -47,6 +54,9 @@ impl Overlay {
             .map(|p| ProfileKey::new(&self.name, &p.name))
     }
 
+    /// Walk the `profiles` directory of this overlay and evaluate every subdir as a profile,
+    /// parsing and resolving the `parents` file to build the inheritance relationships between
+    /// the profiles.
     fn parse_profiles(&mut self) -> anyhow::Result<()> {
         let profile_dir = self.profiles_root();
 
@@ -144,6 +154,9 @@ impl TryFrom<&Path> for Overlay {
     }
 }
 
+/// Try to construct a full [OverlayTable] using the specified [Config] options.
+///
+/// Explores directories in parallel using a thread worker pool.
 pub fn build_overlay_map(config: &Config) -> anyhow::Result<OverlayTable> {
     let mut walker = ignore::WalkBuilder::new(&config.src_path);
     walker.filter_entry(|dir| dir.path().is_dir());
@@ -158,6 +171,10 @@ pub fn build_overlay_map(config: &Config) -> anyhow::Result<OverlayTable> {
     OverlayTable::try_from(table)
 }
 
+/// A full mapping of all found [Overlay]s and their associated profiles.
+///
+/// Supports various profile traversal operations to evaluate variables and handle
+/// profile inheritance.
 #[derive(Debug)]
 pub struct OverlayTable {
     pub map: HashMap<String, Overlay>,
@@ -170,6 +187,7 @@ impl OverlayTable {
         }
     }
 
+    /// Return a reference to the [Profile] specified by a [ProfileKey], if it exists.
     pub fn get(&self, key: &ProfileKey) -> Option<&Profile> {
         self.map
             .get(key.overlay())
@@ -177,10 +195,17 @@ impl OverlayTable {
             .flatten()
     }
 
+    /// Query whether a variable is incremental or not in the context of a particular [Profile].
     pub fn is_incremental_variable(&self, _profile_key: &ProfileKey, variable: &str) -> bool {
+        // TODO(cjmcdonald): Handle dynamically defined incremental variables.
         is_builtin_incremental_variable(variable)
     }
 
+    /// Return a [Vec] of the [Span]s constituting the full value of a variable as defined by a
+    /// profile and its inheritance hierarchy.
+    ///
+    /// Internally handles whether or not the variable is incremental in this context and
+    /// dispatches appropriately.
     pub fn compute_variable<'a>(
         &'a self,
         profile_key: &'a ProfileKey,
@@ -203,6 +228,14 @@ impl OverlayTable {
         }
     }
 
+    /// Visits the directed acyclic graph of a profile and its inheritance tree in postorder, i.e.
+    /// recursively visiting all children before visiting self.
+    ///
+    /// An 'arborescence' is the act of turning a DAG into a tree by splitting nodes with multiple
+    /// ancestors into duplicated unshared nodes. Visiting the same profile multiple times in
+    /// different inheritance branches of the same profile is intended behavior and is mandated by
+    /// the Package Manager Specification.
+    /// Traversal specification: https://dev.gentoo.org/~ulm/pms/head/pms.html#x1-440005.2.1
     pub fn visit_arborescence_postorder<'a>(
         &'a self,
         profile_key: &'a ProfileKey,
@@ -218,6 +251,10 @@ impl OverlayTable {
         Ok(())
     }
 
+    /// Returns the value of a non-incremental variable for a particular profile.
+    ///
+    /// Non-incremental variables have simple rules for their evaluation: visit the inheritance
+    /// DAG in postorder and use the last definition found.
     fn compute_non_incremental_variable<'a>(
         &'a self,
         profile_key: &'a ProfileKey,
@@ -236,6 +273,11 @@ impl OverlayTable {
         }
     }
 
+    /// Return the definition of an incremental variable as found in every profile in the target's
+    /// inheritance DAG.
+    ///
+    /// We don't immediately collapse these [TokenSet]s together so that the caller can use each
+    /// definition set to provide richer data to the user.
     pub fn compute_incremental_variable<'a>(
         &'a self,
         profile_key: &'a ProfileKey,
@@ -256,6 +298,11 @@ impl OverlayTable {
         Ok(incremental_values)
     }
 
+    /// Look up a variable in a profile's inheritance DAG, *not including* the target profile
+    /// itself, with an empty string as a placeholder if no definition exists.
+    ///
+    /// This method is intended as a helper to find an appropriate definition for a variable that
+    /// is used, but not defined, in the target profile.
     fn get_needed_var<'a>(
         &'a self,
         profile_key: &'a ProfileKey,
@@ -319,6 +366,8 @@ impl OverlayTable {
         Ok(value)
     }
 
+    /// Look up a variable in the context of a given profile, using the definition found in
+    /// the profile if it is defined there or searching the inheritance DAG if it is not.
     fn get_variable_with_inheritance<'a>(
         &'a self,
         profile_key: &'a ProfileKey,

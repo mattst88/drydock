@@ -6,6 +6,9 @@ use petgraph::graphmap::DiGraphMap;
 use crate::portage::overlay::OverlayTable;
 use crate::portage::profile::ProfileKey;
 
+/// Helper function to print the graph ancestors of a profile in graphviz's DOT format.
+/// Currently operates by traversing the [OverlayTable] and adding the profile & parents
+/// to a [DiGraphMap] and using petgraph's builtin DOT formatter.
 pub fn dump_graphviz(table: &OverlayTable, roots: &[ProfileKey]) {
     let mut graphmap: DiGraphMap<&str, ()> = DiGraphMap::new();
 

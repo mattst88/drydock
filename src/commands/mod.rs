@@ -1,3 +1,7 @@
+//! Module containing the implementations of each subcommand.
+//! Subcommands all have the same function signature, accepting a &[crate::config::Config],
+//! an [clap::ArgMatches], and returning a [Result<()>].
+
 use std::{cmp::max, collections::HashMap, ffi::OsString, fmt::Write};
 use std::{collections::BTreeSet, str::FromStr};
 
@@ -30,6 +34,7 @@ pub fn parents(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Evaluate a Portage variable and print the contents to stdout.
 pub fn eval(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
     let target = sub_args.value_of("profile").unwrap();
     let profile = ProfileKey::from_str(target)?;
@@ -51,6 +56,19 @@ pub fn eval(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Print the parsed syntax tree for the contents of a variable with the annotated location
+/// of each leaf in the tree.
+///
+/// Portage really has two types of variables: incremental and non-incremental.
+/// Non-incremental variables behave like familiar variables in other settings: the most
+/// recent definition is the one that is used. Incremental variables function more like sets
+/// of tokens, with each node in the inheritance tree having a separate definition of that
+/// variable and the final value being the concatenated union of every profile's definition
+/// of that variable.
+///
+/// This function currently behaves very differently depending on whether or not the specified
+/// variable is incremental or not, but in the interest of not burdening the user with having
+/// to understand the distinction we handle both cases in this command.
 pub fn blame(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
     let target = sub_args.value_of("profile").unwrap();
     let profile = ProfileKey::from_str(target)?;
@@ -119,6 +137,8 @@ pub fn blame(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Dump an ugly Debug representation of an [crate::portage::overlay::Overlay] to aid in manual
+/// debugging of behavior.
 pub fn dump_debug(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
     let target = sub_args.value_of("overlay").unwrap();
     let overlay_table = build_overlay_map(&config)?;
@@ -127,6 +147,8 @@ pub fn dump_debug(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> 
     Ok(())
 }
 
+/// Helper function to flatten a slice of [Span]s into a single [String].
+/// [Span]s are essentially just a wrapper around &[str] with some additional metadata.
 fn simple_format(tokens: &[Span]) -> String {
     let mut output = String::new();
 
@@ -136,6 +158,7 @@ fn simple_format(tokens: &[Span]) -> String {
     output
 }
 
+/// Helper function to print the detailed lineart for span metadata on variable contents.
 fn blame_format(tokens: &[Span], config: &Config) {
     let mut seen = HashMap::new();
     for t in tokens {
@@ -175,6 +198,10 @@ fn blame_format(tokens: &[Span], config: &Config) {
     println!("{}", formatted);
 }
 
+/// Helper function to extract information from the metadata in a [Span] and generate a
+/// a short label to print to a user for the source of that [Span].
+/// The generated labels look like `my-overlay/profiles/some/profile:L50`, which would
+/// correspond to line number 50 from the `some/profile` profile of the `my-overlay` overlay.
 fn span_label(p: &Span, _config: &Config) -> String {
     let profile_dir: OsString = OsString::from("profiles");
     let mut ancestors = p.extra.ancestors();

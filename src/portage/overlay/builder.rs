@@ -9,6 +9,7 @@ use ignore::WalkState;
 
 use super::{Overlay, OverlayTable};
 
+/// A struct responsible for traversing the filesystem and building a collection of overlays.
 #[derive(Debug)]
 pub struct OverlayTableBuilder {
     pub(super) table: Arc<Mutex<OverlayTable>>,
@@ -52,6 +53,7 @@ impl TryFrom<OverlayTableBuilder> for OverlayTable {
     }
 }
 
+/// A callback struct used in each worker thread of [ignore::ParallelVisitor].
 #[derive(Debug)]
 pub struct OverlayTablePiece {
     table: Arc<Mutex<OverlayTable>>,
