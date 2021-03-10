@@ -40,6 +40,25 @@ or `~/.config/drydock`, but the config file path can be specified with the
 arguments in addition to the configuration file, check ```drydock --help``` or
 ```drydock <subcmd> --help``` for more details.
 
-## Building
-`drydock` requires a stable Rust toolchain and can be built with just
-```cargo build --release```
+## Building & Installing
+`drydock` requires a stable Rust toolchain, best obtained via https://rustup.rs/
+
+### Installing
+You can install `drydock` via `cargo` by running
+```sh
+cargo install --path ${DRYDOCK_CHECKOUT_DIR?}
+```
+
+### Building
+`drydock` can be built by running
+```sh
+cargo build --release
+```
+while in the project directory. The output binary can then be found at
+`target/release/drydock` and can be moved to the location of your choosing.
+
+### Running without installing
+`drydock` can also be compiled and run directly from the project directory via
+```sh
+cargo run --release -- ${YOUR_ARGS?}
+```
