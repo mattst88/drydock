@@ -123,10 +123,13 @@ fn main() -> anyhow::Result<()> {
         .get_matches();
 
     if let ("config", _) = args.subcommand() {
-        crate::config::generate_default(&args)?
+        crate::config::generate_default(args.value_of("config_file"), args.value_of("src_path"))?
     }
 
-    let config = crate::config::get(&args)?;
+    let config = crate::config::DrydockConfig::load(
+        args.value_of("config_file"),
+        args.value_of("src_path"),
+    )?;
 
     match args.subcommand() {
         ("config", _) => {}

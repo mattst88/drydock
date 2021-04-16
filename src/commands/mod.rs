@@ -10,11 +10,13 @@ use clap::ArgMatches;
 use colored::Colorize;
 use source_span::{fmt::Style, Position};
 
-use crate::{config::Config, graph, portage::profile_parser::Span, portage::variables::TokenState};
+use crate::{
+    config::DrydockConfig, graph, portage::profile_parser::Span, portage::variables::TokenState,
+};
 
 use crate::portage::{overlay::build_overlay_map, ProfileKey};
 
-pub fn parents(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
+pub fn parents(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<()> {
     let targets = sub_args.values_of("profile").unwrap();
     let targets: Vec<_> = targets
         .map(|target| ProfileKey::from_str(target).unwrap())
@@ -35,7 +37,7 @@ pub fn parents(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
 }
 
 /// Evaluate a Portage variable and print the contents to stdout.
-pub fn eval(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
+pub fn eval(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<()> {
     let target = sub_args.value_of("profile").unwrap();
     let profile = ProfileKey::from_str(target)?;
 
@@ -69,7 +71,7 @@ pub fn eval(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
 /// This function currently behaves very differently depending on whether or not the specified
 /// variable is incremental or not, but in the interest of not burdening the user with having
 /// to understand the distinction we handle both cases in this command.
-pub fn blame(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
+pub fn blame(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<()> {
     let target = sub_args.value_of("profile").unwrap();
     let profile = ProfileKey::from_str(target)?;
 
@@ -139,7 +141,7 @@ pub fn blame(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
 
 /// Dump an ugly Debug representation of an [crate::portage::overlay::Overlay] to aid in manual
 /// debugging of behavior.
-pub fn dump_debug(config: &Config, sub_args: &ArgMatches) -> anyhow::Result<()> {
+pub fn dump_debug(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<()> {
     let target = sub_args.value_of("overlay").unwrap();
     let overlay_table = build_overlay_map(&config)?;
 
@@ -159,7 +161,7 @@ fn simple_format(tokens: &[Span]) -> String {
 }
 
 /// Helper function to print the detailed lineart for span metadata on variable contents.
-fn blame_format(tokens: &[Span], config: &Config) {
+fn blame_format(tokens: &[Span], config: &DrydockConfig) {
     let mut seen = HashMap::new();
     for t in tokens {
         let idx = seen.len();
@@ -202,7 +204,7 @@ fn blame_format(tokens: &[Span], config: &Config) {
 /// a short label to print to a user for the source of that [Span].
 /// The generated labels look like `my-overlay/profiles/some/profile:L50`, which would
 /// correspond to line number 50 from the `some/profile` profile of the `my-overlay` overlay.
-fn span_label(p: &Span, _config: &Config) -> String {
+fn span_label(p: &Span, _config: &DrydockConfig) -> String {
     let profile_dir: OsString = OsString::from("profiles");
     let mut ancestors = p.extra.ancestors();
 
