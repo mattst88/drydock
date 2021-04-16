@@ -19,6 +19,7 @@ fn main() -> anyhow::Result<()> {
             .long("config-file")
             .takes_value(true)
             .help("Path to the configuration file to use.")
+            .global(true)
         )
         .arg(
             Arg::with_name("src_path")
@@ -30,6 +31,7 @@ fn main() -> anyhow::Result<()> {
                 the command line overrides the value found in the configuration file. \
                 For Chrome OS users this value will typically look like `~/chromiumos/src`."
             )
+            .global(true)
         )
         .subcommand(
             SubCommand::with_name("parents")
