@@ -220,7 +220,7 @@ impl OverlayTable {
                     base
                 },
             );
-            let vals: Vec<Span> = tokens.into_spans();
+            let vals: Vec<Span> = tokens.into();
 
             Ok(vals)
         } else {
@@ -289,7 +289,7 @@ impl OverlayTable {
             let mut visitor = |p| {
                 let var = self.compute_non_incremental_variable(p, variable)?;
 
-                results.push((TokenSet::from_raw_spans(&var), p));
+                results.push((TokenSet::from_raw_spans(&var)?, p));
                 Ok(())
             };
 
