@@ -109,10 +109,10 @@ impl Profile {
                                 self.conf = Some(rentref);
                                 Ok(())
                             }
-                            Err(e) => panic!(e),
+                            Err(e) => bail!(e.0)
                         }
                     }
-                    Err(e) => panic!(e),
+                    Err(e) => bail!(e.0),
                 }
             }
         }
