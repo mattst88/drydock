@@ -95,8 +95,20 @@ pub fn full_parse(mut input: Span<'_>) -> anyhow::Result<ValueMap<'_>> {
             input = new_input;
         } else {
             // Consume any stray leading whitespace, or return an error if we cannot parse further.
-            let (new, _) = multispace1::<Span, nom::error::VerboseError<Span>>(input)
-                .map_err(|e| anyhow!("Unable to parse remaining fragment: {}", e))?;
+            let (new, _) =
+                multispace1::<Span, nom::error::VerboseError<Span>>(input).map_err(|_| {
+                    anyhow!(
+                        "Syntax error at line {line_number}:\n\n\
+                        {full_line}\n\
+                        {caret:>column$}\n\n\
+                        Invalid fragment (expected a variable assignment or comment).
+                    ",
+                        line_number = input.location_line(),
+                        full_line = std::str::from_utf8(input.get_line_beginning()).unwrap(),
+                        caret = '^',
+                        column = input.get_column(),
+                    )
+                })?;
             input = new;
         }
     }
