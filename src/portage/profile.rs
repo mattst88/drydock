@@ -18,12 +18,34 @@ use super::profile_parser::Span;
 const PARENT_FILE: &str = "parent";
 const MAKE_DEFAULTS: &str = "make.defaults";
 
+/// Portage variables that are defined by the Package Manager Spec to always be treated as
+/// incremental.
+static INCREMENTAL_VARIABLES: &[&str] = &[
+    "USE",
+    "USE_EXPAND",
+    "USE_EXPAND_HIDDEN",
+    "CONFIG_PROTECT",
+    "CONFIG_PROTECT_MASK",
+    "IUSE_IMPLICIT",
+    "USE_EXPAND_IMPLICIT",
+    "USE_EXPAND_UNPREFIXED",
+    "ENV_UNSET",
+];
+
+/// Helper function to determine if a variable is a Portage built-in incremental variable.
+pub fn is_builtin_incremental_variable(variable: &str) -> bool {
+    INCREMENTAL_VARIABLES.contains(&variable)
+}
+
 rental! {
     mod rentals {
         use super::*;
 
         /// A self-referential struct containing the path to a file, the contents of that file,
         /// and a [LocatedSpan] holding borrows of those two owned fields.
+        ///
+        /// This self-borrow is necessary in order to ensure that our [Span] type is [Copy] and
+        /// that our [Span] has the necessary trait implementations to work with nom's parsers.
         #[rental(debug, covariant)]
         pub struct FileMap {
             path: PathBuf,
@@ -33,6 +55,10 @@ rental! {
 
         /// A self-referential struct containing a [FileMap] and a [HashMap] of the parsed
         /// variable definitions from that file.
+        ///
+        /// This self-referential struct is a convenience wrapper around storing the contents
+        /// of a configuration file and a [HashMap] with values consisting of references into
+        /// that owned storage buffer.
         #[rental(debug, covariant)]
         pub struct ParsedFile {
             file_map: Box<FileMap>,
@@ -41,22 +67,23 @@ rental! {
     }
 }
 
-/// A struct corresponding to a single instance of a Portage profile.
-///
-/// Carries its own name (as defined in layout.conf), the [ProfileKey]s of its parents,
-/// its full filesystem path, and any parsed file contents if they have been evaluated yet.
+/// A single instance of a Portage profile.
 #[derive(Debug)]
 pub struct Profile {
+    /// Profile name as declared in layout.conf
     pub name: String,
+    /// [ProfileKey]s of the profiles declared as parents of this profile.
     pub parents: Vec<ProfileKey>,
+    /// Full filesystem path to this profile.
     full_path: PathBuf,
+    /// Parsed configuration file contents, if they have been evaluated yet.
     pub conf: Option<rentals::ParsedFile>,
 }
 
 impl Profile {
     /// Create a new instance from a profile name and a full filesystem path.
-    /// Doesn't yet validate if the name and full path are coherent.
     pub fn new<T: Into<String>>(name: T, full_path: PathBuf) -> Self {
+        // TODO: validate if the name and full path are coherent.
         Self {
             name: name.into(),
             parents: Default::default(),
@@ -72,7 +99,7 @@ impl Profile {
     }
 
     /// Parse the `parents` file of a profile, with a non-existent file signifying no parents.
-    pub fn parse_parents(profile_path: &Path) -> anyhow::Result<Vec<(Option<String>, PathBuf)>> {
+    pub fn parse_parents(profile_path: &Path) -> anyhow::Result<Vec<ProfileReference>> {
         let file_path = profile_path.join(PARENT_FILE);
         if !file_path.exists() {
             return Ok(Vec::new());
@@ -82,7 +109,7 @@ impl Profile {
     }
 
     /// Load a `make.conf` or `make.defaults` file in this profile if it exists and parse it.
-    pub fn parse_conf(&mut self) -> anyhow::Result<()> {
+    pub fn parse_and_ingest_conf(&mut self) -> anyhow::Result<()> {
         match self.conf {
             Some(_) => Ok(()),
             None => {
@@ -109,7 +136,7 @@ impl Profile {
                                 self.conf = Some(rentref);
                                 Ok(())
                             }
-                            Err(e) => bail!(e.0)
+                            Err(e) => bail!(e.0),
                         }
                     }
                     Err(e) => bail!(e.0),
@@ -121,6 +148,7 @@ impl Profile {
 
 impl Hash for Profile {
     fn hash<H: Hasher>(&self, state: &mut H) {
+        // Note: The `conf` field is omitted from the hash calculation.
         self.name.hash(state);
         self.parents.hash(state);
         self.full_path.hash(state);
@@ -129,6 +157,7 @@ impl Hash for Profile {
 
 impl PartialEq for Profile {
     fn eq(&self, other: &Self) -> bool {
+        // Note: The `conf` field is omitted from the equality calculation.
         self.name == other.name
             && self.parents == other.parents
             && self.full_path == other.full_path
@@ -136,7 +165,7 @@ impl PartialEq for Profile {
 }
 impl Eq for Profile {}
 
-/// A type representing the unambiguous name & location of a profile.
+/// The unambiguous name & location of a profile.
 ///
 /// Looks like "overlay-name:path/to/profile".
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -147,12 +176,14 @@ pub struct ProfileKey {
 impl FromStr for ProfileKey {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut splits = s.split(':');
-        if let (Some(overlay), Some(name)) = (splits.next(), splits.next()) {
-            Ok(Self::new(overlay, name))
-        } else {
-            bail! {"Unable to parse profile key from string. A profile key must be of the form overlay:path/to/profile."}
+        let mut split_by_colon = s.split(':');
+        if let (Some(overlay), Some(name)) = (split_by_colon.next(), split_by_colon.next()) {
+            if !overlay.is_empty() && !name.is_empty() {
+                return Ok(Self::new(overlay, name));
+            }
         }
+        bail! {"Unable to parse profile key from string: {}\
+        \nA profile key must be of the form overlay:path/to/profile.", s}
     }
 }
 
@@ -174,6 +205,18 @@ impl ProfileKey {
     pub fn full_name(&self) -> &str {
         self.data.as_str()
     }
+}
+
+/// A potentially ambigious reference to another profile.
+///
+/// Parent relationships between profiles can either be specified in an absolute fashion, e.g.
+/// `some-overlay:foo/bar`, or as a relative path to the parent file e.g. `../..`.
+/// A relative reference cannot be unambiguously made into a [ProfileKey] without knowing the
+/// profile in which it was declared.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ProfileReference {
+    Absolute { overlay: String, path: PathBuf },
+    Relative { path: PathBuf },
 }
 
 /// A state machine to turn parsed syntax trees into flattened variables.
@@ -239,21 +282,78 @@ pub enum MuncherState<'a> {
     Done(Vec<Span<'a>>),
 }
 
-/// Portage variables that are defined by the Package Manager Spec to always be treated as
-/// incremental.
-static INCREMENTAL_VARIABLES: &[&str] = &[
-    "USE",
-    "USE_EXPAND",
-    "USE_EXPAND_HIDDEN",
-    "CONFIG_PROTECT",
-    "CONFIG_PROTECT_MASK",
-    "IUSE_IMPLICIT",
-    "USE_EXPAND_IMPLICIT",
-    "USE_EXPAND_UNPREFIXED",
-    "ENV_UNSET",
-];
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-/// Helper function to determine if a variable is a Portage built-in incremental variable.
-pub fn is_builtin_incremental_variable(variable: &str) -> bool {
-    INCREMENTAL_VARIABLES.contains(&variable)
+    fn test_data_dir<I, P>(subdir_components: I) -> PathBuf
+    where
+        I: IntoIterator<Item = P>,
+        P: AsRef<Path>,
+    {
+        let mut dir: PathBuf = [env!("CARGO_MANIFEST_DIR"), "resources", "test"]
+            .iter()
+            .collect();
+        dir.extend(subdir_components.into_iter());
+        dir
+    }
+
+    #[test]
+    fn test_profilekey_parse_basic() -> anyhow::Result<()> {
+        let key = ProfileKey::from_str("foo:path/to/profile")?;
+        assert_eq!(key.profile(), "path/to/profile");
+        assert_eq!(key.overlay(), "foo");
+        Ok(())
+    }
+
+    #[test]
+    fn test_profilekey_parse_bad_lead() {
+        assert!(ProfileKey::from_str(":path/to/profile").is_err());
+    }
+
+    #[test]
+    fn test_profilekey_parse_bad_end() {
+        assert!(ProfileKey::from_str("foo:").is_err());
+    }
+
+    #[test]
+    fn test_profilekey_parse_relative() {
+        assert!(ProfileKey::from_str("../..").is_err());
+    }
+
+    #[test]
+    fn test_parent_parse_basic() -> anyhow::Result<()> {
+        let test_profile_path = test_data_dir(&[
+            "test-tree",
+            "test-overlay-spam",
+            "profiles",
+            "special_feature",
+            "extra_special_feature",
+        ]);
+
+        let parents = Profile::parse_parents(&test_profile_path)?;
+        assert_eq!(
+            parents,
+            vec![
+                ProfileReference::Relative { path: "..".into() },
+                ProfileReference::Absolute {
+                    overlay: "ham".into(),
+                    path: "other".into()
+                },
+            ]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn test_profile_ingest_basic() -> anyhow::Result<()> {
+        let test_profile_path =
+            test_data_dir(&["test-tree", "test-overlay-ham", "profiles", "base"]);
+
+        let mut profile = Profile::new("ham", test_profile_path.clone());
+        profile.parse_and_ingest_conf()?;
+
+        assert_eq!(format!("{}", profile.get("BREAKFAST_FOOD").unwrap()), "ham");
+        Ok(())
+    }
 }

@@ -88,7 +88,7 @@ impl ignore::ParallelVisitor for OverlayTablePiece {
                 {
                     Ok(_) => {
                         for p in overlay.profiles.values_mut() {
-                            match p.parse_conf().with_context(|| {
+                            match p.parse_and_ingest_conf().with_context(|| {
                                 format!(
                                     "Failed while parsing {:?}:{} conf!",
                                     dir.path().components().last().unwrap(),

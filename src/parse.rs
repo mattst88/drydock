@@ -1,21 +1,18 @@
 use std::path::PathBuf;
 
+use anyhow::anyhow;
 use lazy_static::lazy_static;
 use nom::{
     branch::alt,
     bytes::complete::{is_not, tag},
     character::complete::multispace0,
-    combinator::map,
-    multi::{many0, many1},
+    combinator::{map, value},
+    multi::many0,
     sequence::{preceded, separated_pair},
 };
 
+use crate::portage::profile::ProfileReference;
 use crate::portage::profile_parser::{self as parse, Span};
-
-lazy_static! {
-    static ref PARENT_REGEX: regex::Regex =
-        regex::Regex::new(r"(?m)^\s*(?:(?P<repo>[^:\s]+):)?(?P<path>[A-Za-z0-9_\-/.]+)").unwrap();
-}
 
 lazy_static! {
     static ref LAYOUT_REGEX: regex::Regex =
@@ -27,29 +24,52 @@ lazy_static! {
 /// profile paths with a leading overlay name, e.g. "some-overlay:path/to/a/profile"
 /// Note that the leading overlay name is *not* a path: it is the `repo-name` variable
 /// declared in an overlay's layout.conf
-pub fn parse_parent_file(body: Span) -> anyhow::Result<Vec<(Option<String>, PathBuf)>> {
-    many1(preceded(
-        many0(preceded(multispace0, parse::comment_line)), // comment or blank line
-        alt((
-            map(
-                preceded(
-                    multispace0,
-                    separated_pair(is_not(": \n"), tag(":"), is_not(" \n")),
-                ), // absolute path
-                |(r, p): (Span, Span)| {
-                    (
-                        Some(String::from(*r.fragment())),
-                        PathBuf::from(p.fragment()),
-                    )
-                },
-            ),
-            map(preceded(multispace0, is_not(" \n")), |v: Span| {
-                (None, PathBuf::from(v.fragment()))
-            }),
-        )),
-    ))(body)
-    .map(|(_, v): (Span, Vec<(Option<String>, PathBuf)>)| v)
-    .map_err(|_| anyhow::anyhow!("parser's busted :("))
+pub fn parse_parent_file(body: Span) -> anyhow::Result<Vec<ProfileReference>> {
+    let comment_line = preceded(multispace0, parse::comment_line);
+    let comment_parser = value(None, comment_line);
+
+    let absolute_reference = map(
+        preceded(
+            multispace0,
+            separated_pair(is_not(": \n"), tag(":"), is_not(" \n")),
+        ), // absolute path
+        |(repo, path): (Span, Span)| {
+            Some(ProfileReference::Absolute {
+                overlay: String::from(*repo),
+                path: PathBuf::from(*path),
+            })
+        },
+    );
+
+    let relative_reference = map(preceded(multispace0, is_not(" \n:")), |path: Span| {
+        Some(ProfileReference::Relative {
+            path: PathBuf::from(*path),
+        })
+    });
+
+    many0(alt((
+        comment_parser,
+        absolute_reference,
+        relative_reference,
+    )))(body)
+    .map(|(_, v): (Span, Vec<_>)| v.into_iter().filter_map(|x| x).collect())
+    .map_err(|e| match e {
+        nom::Err::Error((i, e)) => {
+            anyhow!(nom::error::convert_error(
+                *body,
+                nom::error::make_error(*i, e)
+            ))
+        }
+        nom::Err::Failure((i, e)) => {
+            anyhow!(nom::error::convert_error(
+                *body,
+                nom::error::make_error(*i, e)
+            ))
+        }
+        nom::Err::Incomplete(_) => {
+            anyhow!("Ambiguous parser failure")
+        }
+    })
 }
 
 /// Parse layout.conf and return only the overlay's name for now.
@@ -95,12 +115,14 @@ use-manifests = strict
         assert_eq!(
             parse_parent_file(null_span(SAMPLE)).unwrap(),
             vec![
-                (None, PathBuf::from("..")),
-                (None, PathBuf::from("../../../../../targets/sdk")),
-                (
-                    Some("chromiumos".to_owned()),
-                    PathBuf::from("features/llvm")
-                )
+                ProfileReference::Relative { path: "..".into() },
+                ProfileReference::Relative {
+                    path: "../../../../../targets/sdk".into()
+                },
+                ProfileReference::Absolute {
+                    overlay: "chromiumos".into(),
+                    path: "features/llvm".into()
+                },
             ]
         );
     }
@@ -111,10 +133,10 @@ use-manifests = strict
     fn test_no_linefeed_parent_file_parse() {
         assert_eq!(
             parse_parent_file(null_span(NO_LINEFEED)).unwrap(),
-            vec![(
-                Some("chromiumos".to_owned()),
-                PathBuf::from("features/selinux")
-            ),]
+            vec![ProfileReference::Absolute {
+                overlay: "chromiumos".into(),
+                path: "features/selinux".into()
+            },]
         )
     }
 
@@ -122,7 +144,7 @@ use-manifests = strict
     fn test_tiny_no_linefeed_parent_file_parse() {
         assert_eq!(
             parse_parent_file(null_span("..")).unwrap(),
-            vec![(None, PathBuf::from("..")),]
+            vec![ProfileReference::Relative { path: "..".into() },]
         )
     }
 

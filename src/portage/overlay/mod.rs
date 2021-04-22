@@ -12,8 +12,10 @@ use std::path::{Path, PathBuf};
 use self::builder::OverlayTableBuilder;
 
 use super::{
-    profile::is_builtin_incremental_variable, profile_parser::Span, variables::TokenSet, Profile,
-    ProfileKey,
+    profile::{is_builtin_incremental_variable, ProfileReference},
+    profile_parser::Span,
+    variables::TokenSet,
+    Profile, ProfileKey,
 };
 use crate::portage::profile::{MuncherState, ValueMuncher};
 use crate::portage::profile_parser::RVal;
@@ -89,31 +91,31 @@ impl Overlay {
 
             for parent in Profile::parse_parents(entry.path()).unwrap_or_default() {
                 match parent {
-                    (Some(overlay), name) => profile
+                    ProfileReference::Absolute { overlay, path } => profile
                         .parents
-                        .push(ProfileKey::new(overlay, name.to_string_lossy())),
-                    (None, rel_path) => {
-                        let parent_path = match entry
-                            .path()
-                            .join(&rel_path)
-                            .canonicalize()
-                            .with_context(|| {
+                        .push(ProfileKey::new(overlay, path.to_string_lossy())),
+
+                    ProfileReference::Relative { path } => {
+                        let parent_path =
+                            match entry.path().join(&path).canonicalize().with_context(|| {
                                 format!(
-                                    "Relative path {:?} from {}:{} does not exist!",
-                                    &rel_path, &self.name, &profile.name
+                                    "Relative path {} from {}:{} does not exist!",
+                                    path.display(),
+                                    &self.name,
+                                    &profile.name
                                 )
                             }) {
-                            Ok(p) => p,
-                            Err(_e) => {
-                                // TODO: Replace with logging.
-                                // eprintln!(
-                                //     "Malformed profile found at {:?}\n\tProblem: {}",
-                                //     entry.path(),
-                                //     e
-                                // );
-                                continue;
-                            }
-                        };
+                                Ok(p) => p,
+                                Err(_e) => {
+                                    // TODO: Replace with logging.
+                                    // eprintln!(
+                                    //     "Malformed profile found at {:?}\n\tProblem: {}",
+                                    //     entry.path(),
+                                    //     e
+                                    // );
+                                    continue;
+                                }
+                            };
 
                         let parent_name = parent_path
                             .strip_prefix(self.profiles_root())
