@@ -245,6 +245,9 @@ impl<'a> ValueMuncher<'a> {
     }
 
     /// Push a [RVal] onto the exploration stack of this [ValueMuncher].
+    ///
+    /// Upon receiving [MuncherState::Need], the caller is expected to provide the needed
+    /// variable definition by calling [`ValueMuncher::feed()`] again
     pub fn feed(&mut self, rval: &RVal<'a>, profile: &'a ProfileKey) -> MuncherState<'a> {
         for val in rval.vals.clone().into_iter().rev() {
             self.exploration_stack.push((val, profile));
@@ -285,6 +288,7 @@ pub enum MuncherState<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     fn test_data_dir<I, P>(subdir_components: I) -> PathBuf
     where
@@ -296,6 +300,10 @@ mod tests {
             .collect();
         dir.extend(subdir_components.into_iter());
         dir
+    }
+
+    fn null_span(text: &str) -> Span<'_> {
+        Span::new_extra(text, &Path::new(""))
     }
 
     #[test]
@@ -355,5 +363,110 @@ mod tests {
 
         assert_eq!(format!("{}", profile.get("BREAKFAST_FOOD").unwrap()), "ham");
         Ok(())
+    }
+
+    /// Assert that the [RVal] corresponding to the parse tree of `val_tree` in the following
+    /// snippet is flattened to the value `"hamhamhamham"`:
+    /// ```text
+    /// ham="ham"
+    /// spam="${ham}${ham}"
+    /// spam2="${ham}${ham}"
+    /// val_tree="${spam}${spam2}"
+    /// ```
+    #[test]
+    fn test_valuemuncher_assert_simple_tree_is_flattened() {
+        let val_tree = RVal::new(vec![
+            Value::Expansion {
+                name: null_span("spam"),
+                value: Some(vec![
+                    Value::Literal(null_span("ham")),
+                    Value::Literal(null_span("ham")),
+                ]),
+            },
+            Value::Expansion {
+                name: null_span("spam2"),
+                value: Some(vec![
+                    Value::Literal(null_span("ham")),
+                    Value::Literal(null_span("ham")),
+                ]),
+            },
+        ]);
+        let key = ProfileKey::from_str("test:base").unwrap();
+        let mut muncher = ValueMuncher::new();
+        match muncher.feed(&val_tree, &key) {
+            MuncherState::Need(_) => panic!("Should never return Need."),
+            MuncherState::Done(output_vals) => {
+                assert_eq!(output_vals, vec![null_span("ham"); 4])
+            }
+        }
+
+        assert!(muncher.output_tokens.is_empty());
+        assert!(muncher.exploration_stack.is_empty());
+    }
+
+    #[test]
+    fn test_valuemuncher_assert_valuemuncher_is_safe_to_reuse() {
+        let val_tree = RVal::new(vec![
+            Value::Expansion {
+                name: null_span("spam"),
+                value: Some(vec![
+                    Value::Literal(null_span("ham")),
+                    Value::Literal(null_span("ham")),
+                ]),
+            },
+            Value::Expansion {
+                name: null_span("spam2"),
+                value: Some(vec![
+                    Value::Literal(null_span("ham")),
+                    Value::Literal(null_span("ham")),
+                ]),
+            },
+        ]);
+        let key = ProfileKey::from_str("test:base").unwrap();
+        let mut muncher = ValueMuncher::new();
+
+        match muncher.feed(&val_tree, &key) {
+            MuncherState::Need(_) => panic!("Should never return Need."),
+            MuncherState::Done(output_vals) => {
+                assert_eq!(output_vals, vec![null_span("ham"); 4])
+            }
+        }
+
+        assert!(muncher.output_tokens.is_empty());
+        assert!(muncher.exploration_stack.is_empty());
+
+        // Feed the same Muncher twice, after it returns Done.
+        match muncher.feed(&val_tree, &key) {
+            MuncherState::Need(_) => panic!("Should never return Need."),
+            MuncherState::Done(output_vals) => {
+                assert_eq!(output_vals, vec![null_span("ham"); 4])
+            }
+        }
+
+        assert!(muncher.output_tokens.is_empty());
+        assert!(muncher.exploration_stack.is_empty());
+    }
+
+    proptest! {
+        #[test]
+        fn test_valuemuncher_assert_output_of_random_flat_literals_is_identical(
+            vals in prop::collection::vec(prop::string::string_regex("[A-Za-z]+").unwrap(), 1..10)
+        ) {
+            let span_vals: Vec<Span> = vals.iter().map(|s| null_span(s.as_str())).collect();
+            let literals = span_vals.iter().map(|s| Value::Literal(*s)).collect();
+            let rval = RVal::new(literals);
+
+            let placeholder_key = ProfileKey::from_str("test:base").unwrap();
+            let mut muncher = ValueMuncher::new();
+            match muncher.feed(&rval, &placeholder_key) {
+                MuncherState::Need(_) => panic!("A list of all literals should never return Need."),
+                MuncherState::Done(output_literals) => {
+                    proptest::prop_assert_eq!(output_literals, span_vals);
+                }
+            };
+
+            assert!(muncher.output_tokens.is_empty());
+            assert!(muncher.exploration_stack.is_empty());
+        }
     }
 }

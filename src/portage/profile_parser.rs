@@ -66,7 +66,7 @@ impl<'a> RVal<'a> {
         &PLACEHOLDER_RVAL
     }
 
-    fn new(vals: Vec<Value<'a>>) -> Self {
+    pub(super) fn new(vals: Vec<Value<'a>>) -> Self {
         Self { vals }
     }
 }
