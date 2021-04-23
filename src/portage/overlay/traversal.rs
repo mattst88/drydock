@@ -1,4 +1,8 @@
 //! A module containing trait impls for compatibility with petgraph.
+//!
+//! For the purpose of these traits An [OverlayTable] is treated as a directed graph
+//! where the nodes are [Profile]s and a directed edge from A to B exists if B is
+//! listed in `parent` file of A.
 
 use std::{collections::HashSet, slice::Iter};
 
