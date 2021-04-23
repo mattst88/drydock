@@ -1,6 +1,6 @@
 //! Module containing the implementations of each subcommand.
-//! Subcommands all have the same function signature, accepting a &[crate::config::Config],
-//! an [clap::ArgMatches], and returning a [Result<()>].
+//! Subcommands all have the same function signature, accepting a &[crate::config::DrydockConfig],
+//! an [clap::ArgMatches], and returning a [anyhow::Result<()>].
 
 use std::{cmp::max, collections::HashMap, ffi::OsString, fmt::Write};
 use std::{collections::BTreeSet, str::FromStr};
@@ -25,8 +25,9 @@ pub fn parents(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<
     let overlay_table = build_overlay_map(config)?;
 
     if sub_args.is_present("tree") {
-        // print_profile_tree(0, &profile, &profile_map);
-        todo!();
+        for target in targets.iter() {
+            overlay_table.print_profile_tree(std::io::stdout(), target)?;
+        }
     }
 
     if sub_args.is_present("graph") {

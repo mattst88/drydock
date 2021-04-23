@@ -21,7 +21,7 @@ use crate::portage::profile::{MuncherState, ValueMuncher};
 use crate::portage::profile_parser::RVal;
 use crate::{config::DrydockConfig, parse};
 
-use anyhow::{anyhow, Context};
+use anyhow::{anyhow, bail, Context};
 use nom_locate::LocatedSpan;
 
 /// A struct corresponding to a Portage overlay and all contained profiles.
@@ -380,6 +380,54 @@ impl OverlayTable {
             None => Ok(self.get_variable_from_parents(profile_key, variable)?),
         }
     }
+
+    /// Print a representation of a [Profile] and its inheritance tree (indented by depth)
+    /// to the provided writer.
+    pub fn print_profile_tree(
+        &self,
+        mut writer: impl std::io::Write,
+        profile_key: &ProfileKey,
+    ) -> anyhow::Result<()> {
+        if self.get(profile_key).is_none() {
+            bail!(construct_missing_profile_error(self, profile_key));
+        }
+        self.write_profile_tree_at_depth(&mut writer, profile_key, 0)
+    }
+
+    /// Interior implementation of [OverlayTable::print_profile_tree()] that recurses
+    /// through the inheritance tree of the provided [ProfileKey] and writes the entries
+    /// found indented at the level of `depth`.
+    fn write_profile_tree_at_depth(
+        &self,
+        writer: &mut impl std::io::Write,
+        profile_key: &ProfileKey,
+        depth: usize,
+    ) -> anyhow::Result<()> {
+        for _ in 0..depth {
+            write!(writer, "\t")?;
+        }
+        if let Some(profile) = self.get(profile_key) {
+            writeln!(
+                writer,
+                "{}:{}",
+                profile_key.overlay(),
+                profile_key.profile()
+            )?;
+            for parent_key in profile.parents.iter() {
+                // Recurse, and print the parents indented one level deeper.
+                self.write_profile_tree_at_depth(writer, parent_key, depth + 1)?;
+            }
+        } else {
+            writeln!(
+                writer,
+                "{}:{} <broken, no such profile>",
+                profile_key.overlay(),
+                profile_key.profile()
+            )?;
+        }
+
+        Ok(())
+    }
 }
 
 impl Default for OverlayTable {
@@ -450,5 +498,55 @@ fn construct_missing_profile_error(
                 profile_key.profile()
             )
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::path::{Path, PathBuf};
+
+    use crate::{config::DrydockConfig, portage::overlay::build_overlay_map};
+
+    fn test_data_dir<I, P>(subdir_components: I) -> PathBuf
+    where
+        I: IntoIterator<Item = P>,
+        P: AsRef<Path>,
+    {
+        let mut dir: PathBuf = [env!("CARGO_MANIFEST_DIR"), "resources", "test"]
+            .iter()
+            .collect();
+        dir.extend(subdir_components.into_iter());
+        dir
+    }
+
+    #[test]
+    fn test_print_profile_tree_test_tree() -> anyhow::Result<()> {
+        let test_tree = test_data_dir(&["test-tree"]);
+
+        let config = DrydockConfig {
+            src_path: test_tree,
+            ..Default::default()
+        };
+        let key = ProfileKey::new("spam", "special_feature/extra_special_feature");
+
+        let overlay_table = build_overlay_map(&config)?;
+
+        let mut buf = Vec::new();
+        overlay_table.print_profile_tree(&mut buf, &key)?;
+
+        let output = String::from_utf8(buf)?;
+
+        assert_eq!(
+            output,
+            "spam:special_feature/extra_special_feature\n\
+            \tspam:special_feature\n\
+            \t\tham:base\n\
+            \t\t\teggs:base\n\
+            \tham:other\n"
+        );
+
+        Ok(())
     }
 }
