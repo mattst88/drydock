@@ -1,5 +1,6 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, io};
 
+use anyhow::bail;
 use petgraph::dot;
 use petgraph::graphmap::DiGraphMap;
 
@@ -9,7 +10,11 @@ use crate::portage::profile::ProfileKey;
 /// Helper function to print the graph ancestors of a profile in graphviz's DOT format.
 /// Currently operates by traversing the [OverlayTable] and adding the profile & parents
 /// to a [DiGraphMap] and using petgraph's builtin DOT formatter.
-pub fn dump_graphviz(table: &OverlayTable, roots: &[ProfileKey]) {
+pub fn dump_graphviz(
+    mut dest: impl io::Write,
+    table: &OverlayTable,
+    roots: &[ProfileKey],
+) -> anyhow::Result<()> {
     let mut graphmap: DiGraphMap<&str, ()> = DiGraphMap::new();
 
     for root in roots {
@@ -33,22 +38,79 @@ pub fn dump_graphviz(table: &OverlayTable, roots: &[ProfileKey]) {
                     frontier.push(parent)
                 }
             } else {
-                eprintln!("{} : {}", key.overlay(), key.profile());
-                panic!("Missing a profile!\n Requested: {:?}\nFound: {:?}", key, o);
+                bail!("Missing a profile!\n Requested: {:?}\nFound: {:?}", key, o);
             }
         } else {
-            eprintln!("{} : {}", key.overlay(), key.profile());
             let mut keys: Vec<String> = table.map.keys().cloned().collect();
             keys.sort();
-            panic!(
+            bail!(
                 "Missing an overlay!\n Requested: {:?}\nVisited: {:?}\nKeys: {:?}",
-                key, visited, keys
+                key,
+                visited,
+                keys
             );
         }
     }
 
-    println!(
+    writeln!(
+        &mut dest,
         "{:?}",
         dot::Dot::with_config(&graphmap, &[dot::Config::EdgeNoLabel])
-    );
+    )?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::path::{Path, PathBuf};
+
+    use crate::{config::DrydockConfig, portage::overlay::build_overlay_map};
+
+    fn test_data_dir<I, P>(subdir_components: I) -> PathBuf
+    where
+        I: IntoIterator<Item = P>,
+        P: AsRef<Path>,
+    {
+        let mut dir: PathBuf = [env!("CARGO_MANIFEST_DIR"), "resources", "test"]
+            .iter()
+            .collect();
+        dir.extend(subdir_components.into_iter());
+        dir
+    }
+
+    #[test]
+    fn test_graphviz_basic_test_tree() -> anyhow::Result<()> {
+        let test_tree = test_data_dir(&["test-tree"]);
+
+        let config = DrydockConfig {
+            src_path: test_tree,
+            ..Default::default()
+        };
+        let roots = &[ProfileKey::new("ham", "base")];
+
+        let overlay_table = build_overlay_map(&config)?;
+
+        let mut buf = Vec::new();
+        dump_graphviz(&mut buf, &overlay_table, roots)?;
+
+        let output = String::from_utf8(buf)?;
+
+        // This output is deterministic since there are only two nodes: The node in
+        // the `roots` argument will always be first.
+        assert_eq!(
+            output,
+            r#"digraph {
+    0 [ label = "\"ham:base\"" ]
+    1 [ label = "\"eggs:base\"" ]
+    0 -> 1 [ ]
+}
+
+"#
+        );
+
+        Ok(())
+    }
 }

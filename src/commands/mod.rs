@@ -30,7 +30,7 @@ pub fn parents(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<
     }
 
     if sub_args.is_present("graph") {
-        graph::dump_graphviz(&overlay_table, &targets);
+        graph::dump_graphviz(std::io::stdout(), &overlay_table, &targets)?;
     }
 
     Ok(())
