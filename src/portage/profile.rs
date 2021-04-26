@@ -348,6 +348,10 @@ mod tests {
                     overlay: "ham".into(),
                     path: "other".into()
                 },
+                ProfileReference::Absolute {
+                    overlay: "eggs".into(),
+                    path: "base".into()
+                },
             ]
         );
         Ok(())

@@ -24,7 +24,7 @@ use crate::{config::DrydockConfig, parse};
 use anyhow::{anyhow, bail, Context};
 use nom_locate::LocatedSpan;
 
-/// A struct corresponding to a Portage overlay and all contained profiles.
+/// A Portage overlay and all contained profiles.
 ///
 /// Full specification: https://dev.gentoo.org/~ulm/pms/head/pms.html#x1-280004
 #[derive(Debug, Hash, Eq, PartialEq)]
@@ -146,11 +146,22 @@ impl TryFrom<&Path> for Overlay {
 
     fn try_from(value: &Path) -> Result<Self, Self::Error> {
         let metadata_path = value.join("metadata/layout.conf");
-        let layout_body = fs::read_to_string(&metadata_path)?;
+        let layout_body = fs::read_to_string(&metadata_path).with_context(|| {
+            format!(
+                "Failed to read overlay layout file at {}",
+                metadata_path.display()
+            )
+        })?;
         let repo_name = parse::parse_layout_conf(LocatedSpan::new_extra(
             &layout_body,
             metadata_path.as_path(),
-        ))?;
+        ))
+        .with_context(|| {
+            format!(
+                "Failed to parse layout.conf file at {}",
+                metadata_path.display()
+            )
+        })?;
         let overlay = Overlay::new(repo_name.into(), value.into());
         Ok(overlay)
     }
@@ -205,9 +216,6 @@ impl OverlayTable {
 
     /// Return a [Vec] of the [Span]s constituting the full value of a variable as defined by a
     /// profile and its inheritance hierarchy.
-    ///
-    /// Internally handles whether or not the variable is incremental in this context and
-    /// dispatches appropriately.
     pub fn compute_variable<'a>(
         &'a self,
         profile_key: &'a ProfileKey,
@@ -544,7 +552,57 @@ mod tests {
             \tspam:special_feature\n\
             \t\tham:base\n\
             \t\t\teggs:base\n\
-            \tham:other\n"
+            \tham:other\n\
+            \teggs:base\n"
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "Failed to parse layout.conf file")]
+    fn test_assert_overlay_constructor_fails_on_malformed_layout_conf() {
+        let test_overlay_path =
+            test_data_dir(&["malformed-test-tree", "test-overlay-malformed-overlay"]);
+
+        Overlay::try_from(test_overlay_path.as_path()).unwrap();
+    }
+
+    #[test]
+    fn test_assert_arborescence_visits_in_known_order() -> anyhow::Result<()> {
+        let test_tree = test_data_dir(&["test-tree"]);
+
+        let config = DrydockConfig {
+            src_path: test_tree,
+            ..Default::default()
+        };
+        let key = ProfileKey::new("spam", "special_feature/extra_special_feature");
+
+        let overlay_table = build_overlay_map(&config)?;
+
+        let mut visited = Vec::new();
+
+        let mut visitor = |key| {
+            // This type annotation is needed for rustc to infer the type of `key`, but cannot
+            // be annotated on the closure variable due to:
+            // https://doc.rust-lang.org/error-index.html#E0521
+            let key: &ProfileKey = key;
+            let name: &str = key.full_name();
+            visited.push(name);
+            Ok(())
+        };
+        overlay_table.visit_arborescence_postorder(&key, &mut visitor)?;
+
+        assert_eq!(
+            visited,
+            vec![
+                "eggs:base",
+                "ham:base",
+                "spam:special_feature",
+                "ham:other",
+                "eggs:base",
+                "spam:special_feature/extra_special_feature"
+            ]
         );
 
         Ok(())

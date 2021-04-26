@@ -153,8 +153,8 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "Syntax error at line 6")]
-    fn test_table_builder_fails_on_bad_conf() {
-        let test_tree_dir = test_data_dir(&["malformed-test-tree"]);
+    fn test_table_builder_fails_on_bad_make_default() {
+        let test_tree_dir = test_data_dir(&["broken-test-tree"]);
 
         let mut walker = ignore::WalkBuilder::new(&test_tree_dir);
         walker.filter_entry(|dir| dir.path().is_dir());
