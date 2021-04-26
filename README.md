@@ -7,6 +7,9 @@ values came from.
 `drydock` aims to not only answer *what* a value set to, but *where* and *how*
 that is value defined.
 
+Currently, `drydock` does **not** interact with ebuilds at all and cannot evaluate
+package dependencies.
+
 ## Commands
 Run ```drydock --help``` to see a list of all commands.
 
@@ -18,11 +21,19 @@ drydock eval USE --profile grunt:base
 
 ### `blame`
 Show the value of a variable annotated with details of where the contents of that
-variable are set throughout the profile hierarchy. Example:
+variable are set throughout the profile hierarchy. Running the following example:
 ```
 drydock blame BOARD_COMPILER_FLAGS --profile octopus:base
 ```
-
+will output something similar to:
+```
+-march=goldmont
+^______________^ chipset-glk/profiles/base/make.defaults:L14
+```
+Indicating the value of the `BOARD_COMPILER_FLAGS` variable and where that value
+was set. In this case, line 14 of the `make.defaults` file in the `base` profile
+of the `chipset-glk` overlay. (The exact value may have changed since this
+README was written.)
 ### `parents`
 Print a graphviz representation or text tree of a profile's inheritance tree. Example:
 ```
