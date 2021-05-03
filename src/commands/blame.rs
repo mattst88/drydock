@@ -249,6 +249,8 @@ fn write_blame_table_row<'a>(
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     #[test]
@@ -284,5 +286,14 @@ mod tests {
         );
 
         Ok(())
+    }
+
+    #[test]
+    fn test_span_label_basic() {
+        let path = Path::new("/usr/src/overlay/profiles/foo/bar");
+        let test_span = Span::new_extra("123456789", path);
+        let config = Default::default();
+        let output = span_label(&test_span, &config);
+        assert_eq!(output, "overlay/profiles/foo/bar:L1");
     }
 }

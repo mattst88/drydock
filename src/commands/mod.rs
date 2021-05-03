@@ -6,7 +6,6 @@ mod blame;
 
 pub use blame::blame;
 
-use std::fmt::Write;
 use std::str::FromStr;
 
 use clap::ArgMatches;
@@ -14,7 +13,6 @@ use clap::ArgMatches;
 use crate::{
     config::DrydockConfig,
     graph,
-    portage::profile_parser::Span,
     portage::{overlay::build_overlay_map, ProfileKey},
 };
 
@@ -46,18 +44,11 @@ pub fn eval(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<()>
 
     let target_var = sub_args.value_of("variable").unwrap();
     let overlay_table = build_overlay_map(config)?;
-    if overlay_table.is_incremental_variable(&profile, target_var) {
-        let vals = overlay_table.compute_variable(&profile, target_var)?;
 
-        let mut output = String::new();
-        for val in vals {
-            write!(&mut output, "{} ", val.fragment()).unwrap();
-        }
-        println!("{}", output);
-    } else {
-        let vals = overlay_table.compute_variable(&profile, target_var)?;
-        println!("{}", simple_format(&vals));
-    }
+    let vals = overlay_table.compute_variable(&profile, target_var)?;
+    let output: String = vals.into_iter().map(|s| *s).collect();
+    println!("{}", output);
+
     Ok(())
 }
 
@@ -69,15 +60,4 @@ pub fn dump_debug(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Resu
 
     println!("{:#?}", overlay_table.map[target]);
     Ok(())
-}
-
-/// Helper function to flatten a slice of [Span]s into a single [String].
-/// [Span]s are essentially just a wrapper around &[str] with some additional metadata.
-fn simple_format(tokens: &[Span]) -> String {
-    let mut output = String::new();
-
-    for token in tokens {
-        write!(&mut output, "{}", token.fragment()).unwrap();
-    }
-    output
 }
