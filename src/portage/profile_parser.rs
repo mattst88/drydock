@@ -25,9 +25,25 @@ pub type ValueMap<'a> = HashMap<&'a str, RVal<'a>>;
 /// A variable expansion can then recursively contain literal strings and more variable expansions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value<'a> {
+    /// A verbatim section of text, e.g. "foo".
     Literal(Span<'a>),
+    /// A variable expansion site, e.g. `${MY_VAR}`.
     Expansion {
+        /// The name of the variable being expanded, e.g. `MY_VAR` for `${MY_VAR}`.
         name: Span<'a>,
+        // TODO(cjmcdonald): Make `value` just hold an `RVal`.
+        /// The value of the variable at the time of the expansion.
+        ///
+        /// ## Example
+        /// After the following snippet the expansion `${SPAM}` would have a `value` field with
+        /// a single [Value::Literal] consisting of `"breakfast"`. The expansion `${HAM}` would
+        /// have a `value` field of a single [Value::Expansion] corresponding to the variable
+        /// `FOOBAR`, and that variable expansion's `value` field would be [None], as no value for
+        /// the `FOOBAR` variable has been set yet.
+        /// ```text
+        /// SPAM="breakfast"
+        /// HAM="${FOOBAR}"
+        /// ```
         value: Option<Vec<Value<'a>>>,
     },
 }
