@@ -76,7 +76,10 @@ fn main() -> anyhow::Result<()> {
         )
         .subcommand(
             SubCommand::with_name("blame")
-                .about("Show the value of a variable for a profile annotated with the sources of that variable's contents.")
+                .about(
+                    "Show the value of a variable for a profile annotated with the sources \
+                        of that variable's contents.",
+                )
                 .arg(
                     Arg::with_name("profile")
                         .short("p")

@@ -38,7 +38,8 @@ impl<'a> TokenSet<'a> {
         Self::default()
     }
 
-    /// Parser to split a slice of [Span]s, which individually might contain multiple tokens, into a [TokenSet].
+    /// Parser to split a slice of [Span]s, which individually might contain multiple tokens, into
+    /// a [TokenSet].
     pub fn from_raw_spans(raw_spans: &[Span<'a>]) -> anyhow::Result<Self> {
         let ws_enabled_token = preceded(multispace0, enabled_token);
         let ws_disabled_token = preceded(multispace0, disabled_token);
@@ -128,11 +129,17 @@ fn token(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
 }
 
 /// Parser to recognize an enabled token.
+///
+/// Incremental variables are sets of tokens, so a token being 'enabled' means that it is to be
+/// included in that set.
 fn enabled_token(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
     token(input)
 }
 
 /// Parser to recognize a disabled token.
+///
+/// Incremental variables are sets of tokens, so a token being 'disabled' means that it is to be
+/// removed from that set.
 fn disabled_token(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
     preceded(tag("-"), token)(input)
 }

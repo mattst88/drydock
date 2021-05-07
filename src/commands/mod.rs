@@ -16,6 +16,10 @@ use crate::{
     portage::{overlay::build_overlay_map, ProfileKey},
 };
 
+/// Print the inheritance hierarchy of a given Portage profile.
+///
+/// Can print a simple textual representation of an inheritance tree or a DOT representation
+/// suitable for rendering via `graphviz`.
 pub fn parents(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<()> {
     let targets = sub_args.values_of("profile").unwrap();
     let targets: Vec<_> = targets
