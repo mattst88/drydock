@@ -438,6 +438,19 @@ LOL="${LOL} ${LOL} ${LOL} ${LOL} ${LOL}"
         assert_eq!(format!("{}", res["LOL"]), TWENTY_FIVE_LAUGHS_EXPANDED);
     }
 
+    const TWENTY_FIVE_LAUGHS_UNBRACED: &str = r#"
+LOL="lol"
+LOL="$LOL $LOL $LOL $LOL $LOL"
+LOL="$LOL $LOL $LOL $LOL $LOL"
+"#;
+
+    #[test]
+    fn test_25_laughs_unbraced_evaluation() {
+        let res = full_parse(null_span(TWENTY_FIVE_LAUGHS_UNBRACED));
+        let res = res.unwrap();
+        assert_eq!(format!("{}", res["LOL"]), TWENTY_FIVE_LAUGHS_EXPANDED);
+    }
+
     #[test]
     fn test_full_example_parse() {
         let res = full_parse(null_span(FULL_SAMPLE));
