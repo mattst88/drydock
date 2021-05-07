@@ -52,7 +52,7 @@ pub fn parse_parent_file(body: Span) -> anyhow::Result<Vec<ProfileReference>> {
         absolute_reference,
         relative_reference,
     )))(body)
-    .map(|(_, v): (Span, Vec<_>)| v.into_iter().filter_map(|x| x).collect())
+    .map(|(_, v): (Span, Vec<Option<_>>)| v.into_iter().flatten().collect())
     .map_err(|e| match e {
         nom::Err::Error((i, e)) => {
             anyhow!(nom::error::convert_error(

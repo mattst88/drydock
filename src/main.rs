@@ -16,22 +16,22 @@ fn main() -> anyhow::Result<()> {
         .after_help("Tip: The full `--help` flag gives more verbose explanations of options.")
         .arg(
             Arg::with_name("config_file")
-            .long("config-file")
-            .takes_value(true)
-            .help("Path to the configuration file to use.")
-            .global(true)
+                .long("config-file")
+                .takes_value(true)
+                .help("Path to the configuration file to use.")
+                .global(true),
         )
         .arg(
             Arg::with_name("src_path")
-            .long("src-path")
-            .takes_value(true)
-            .help("Path to the root of the source checkout to analyze.")
-            .long_help(
-                "Path to the root of the source checkout to analyze. Specifying this on \
-                the command line overrides the value found in the configuration file. \
-                For Chrome OS users this value will typically look like `~/chromiumos/src`."
-            )
-            .global(true)
+                .long("src-path")
+                .takes_value(true)
+                .help("Path to the root of the source checkout to analyze.")
+                .long_help(
+                    "Path to the root of the source checkout to analyze. Specifying this on \
+                    the command line overrides the value found in the configuration file. \
+                    For Chrome OS users this value will typically look like `~/chromiumos/src`.",
+                )
+                .global(true),
         )
         .subcommand(
             SubCommand::with_name("parents")
