@@ -465,8 +465,8 @@ fn construct_missing_profile_error(
                 Some(p) => p,
                 None => {
                     return anyhow!(
-                        "The profile {} was requested, but the overlay {} contains no profiles.\
-                         Full path of the overlay: {}",
+                        "The profile {} was requested, but the overlay {} contains no profiles. \
+                        Full path of the overlay: {}",
                         profile_key.full_name(),
                         profile_key.overlay(),
                         o.path.display()
@@ -475,7 +475,7 @@ fn construct_missing_profile_error(
             };
 
             anyhow!(
-                "The overlay {} was found, but the profile {} does not exist. Did you mean: {}",
+                "The overlay {} was found, but the profile \"{}\" does not exist. Did you mean: {}",
                 profile_key.overlay(),
                 profile_key.profile(),
                 nearest_profile
