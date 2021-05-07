@@ -70,7 +70,7 @@ impl Default for DrydockConfig {
 
 /// Generate a default configuration file under `$XDG_CONFIG_HOME` or `~/.config/drydock`
 ///
-/// The default checkout path is `~/chromiumos/src`. It is an error if the specified path does
+/// The default source path is `~/chromiumos/src`. It is an error if the specified path does
 /// not exist.
 pub fn generate_default(
     config_path: Option<impl AsRef<Path>>,
@@ -118,8 +118,8 @@ pub fn generate_default(
                 p.display()
             );
             bail!(
-                "Please re-run this command and specify the path to your Chrome OS source checkout \
-                via the `--src-path` argument."
+                "Please re-run this command and specify the path to the src/ directory of your \
+                Chrome OS source checkout via the `--src-path` argument."
             )
         }
     } else {
@@ -128,8 +128,8 @@ pub fn generate_default(
             config.src_path.display()
         );
         bail!(
-            "Please re-run this command and specify the path to your Chrome OS source checkout \
-            via the `--src-path` argument."
+            "Please re-run this command and specify the path to the src/ directory of your \
+            Chrome OS source checkout via the `--src-path` argument."
         )
     }
     config.save(&config_path)?;
