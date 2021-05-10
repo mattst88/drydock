@@ -1,3 +1,7 @@
+// Copyright 2021 The Chromium OS Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
 use std::fmt;
 use std::{collections::HashMap, path::Path};
 
@@ -11,7 +15,7 @@ use nom::{
     character::is_alphanumeric,
     combinator::{map, recognize},
     multi::many0,
-    sequence::{preceded, terminated, tuple},
+    sequence::{delimited, preceded, separated_pair},
     IResult,
 };
 
@@ -25,9 +29,25 @@ pub type ValueMap<'a> = HashMap<&'a str, RVal<'a>>;
 /// A variable expansion can then recursively contain literal strings and more variable expansions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value<'a> {
+    /// A verbatim section of text, e.g. "foo".
     Literal(Span<'a>),
+    /// A variable expansion site, e.g. `${MY_VAR}`.
     Expansion {
+        /// The name of the variable being expanded, e.g. `MY_VAR` for `${MY_VAR}`.
         name: Span<'a>,
+        // TODO(cjmcdonald): Make `value` just hold an `RVal`.
+        /// The value of the variable at the time of the expansion.
+        ///
+        /// ## Example
+        /// After the following snippet the expansion `${SPAM}` would have a `value` field with
+        /// a single [Value::Literal] consisting of `"breakfast"`. The expansion `${HAM}` would
+        /// have a `value` field of a single [Value::Expansion] corresponding to the variable
+        /// `FOOBAR`, and that variable expansion's `value` field would be [None], as no value for
+        /// the `FOOBAR` variable has been set yet.
+        /// ```text
+        /// SPAM="breakfast"
+        /// HAM="${FOOBAR}"
+        /// ```
         value: Option<Vec<Value<'a>>>,
     },
 }
@@ -66,7 +86,7 @@ impl<'a> RVal<'a> {
         &PLACEHOLDER_RVAL
     }
 
-    fn new(vals: Vec<Value<'a>>) -> Self {
+    pub(super) fn new(vals: Vec<Value<'a>>) -> Self {
         Self { vals }
     }
 }
@@ -85,15 +105,30 @@ impl fmt::Display for RVal<'_> {
 pub fn full_parse(mut input: Span<'_>) -> anyhow::Result<ValueMap<'_>> {
     let mut assignment_map: ValueMap = HashMap::new();
 
-    while input.fragment() != &"" {
+    // This parser loop re-assigns the remaining text to the `input` variable as fragments
+    // are consumed by each sub-parser.
+    while !input.is_empty() {
         if let Ok((new_input, _)) = comment_line(input) {
             input = new_input;
         } else if let Ok((new_input, (lval, rval))) = assignment(input, &assignment_map) {
             assignment_map.insert(lval.fragment(), rval);
             input = new_input;
         } else {
-            let (new, _) = multispace1::<Span, nom::error::VerboseError<Span>>(input)
-                .map_err(|e| anyhow!(e.to_string()))?;
+            // Consume any stray leading whitespace, or return an error if we cannot parse further.
+            let (new, _) =
+                multispace1::<Span, nom::error::VerboseError<Span>>(input).map_err(|_| {
+                    anyhow!(
+                        "Syntax error at line {line_number}:\n\n\
+                        {full_line}\n\
+                        {caret:>column$}\n\n\
+                        Invalid fragment (expected a variable assignment or comment).
+                    ",
+                        line_number = input.location_line(),
+                        full_line = std::str::from_utf8(input.get_line_beginning()).unwrap(),
+                        caret = '^',
+                        column = input.get_column(),
+                    )
+                })?;
             input = new;
         }
     }
@@ -113,19 +148,17 @@ fn assignment<'a>(
 ) -> IResult<Span<'a>, (Span<'a>, RVal<'a>)> {
     let quoted_rval_parser = |i| quoted_rval(i, prior_asn);
     let unquoted_rval_parser = |i| unquoted_rval(i, prior_asn);
-    preceded(
-        multispace0,
-        tuple((
-            terminated(variable, preceded(multispace0, tag("="))),
-            alt((
-                preceded(multispace0, quoted_rval_parser),
-                unquoted_rval_parser,
-            )),
-        )),
+
+    separated_pair(
+        variable,
+        tag("="),
+        alt((quoted_rval_parser, unquoted_rval_parser)),
     )(input)
 }
 
-/// Parser to recognize a properly (according to the Package Manager Spec) quoted [RVal]
+/// Parser to recognize a properly quoted [RVal].
+///
+/// Spec reference:
 /// https://dev.gentoo.org/~ulm/pms/head/pms.html#x1-470005.2.4
 ///
 /// Line continuations are not currently handled properly.
@@ -133,42 +166,56 @@ fn quoted_rval<'a>(
     input: Span<'a>,
     prior_asgn: &HashMap<&str, RVal<'a>>,
 ) -> IResult<Span<'a>, RVal<'a>> {
+    // Helper to grab the current definition for a variable and immediately inline
+    // that definition into the Expansion's value field.
+    let var_expansion_inliner = |v| {
+        if let Value::Expansion { name, .. } = v {
+            let value = prior_asgn.get(&*name).map(|x| x.vals.clone());
+            Value::Expansion { name, value }
+        } else {
+            v
+        }
+    };
+
     map(
-        terminated(
-            preceded(
-                tag("\""),
-                many0(map(alt((literal, expansion)), |v| match v {
-                    v @ Value::Literal { .. } => v,
-                    Value::Expansion { name, .. } => {
-                        let value = prior_asgn.get(name.fragment()).map(|a| a.vals.clone());
-                        Value::Expansion { name, value }
-                    }
-                })),
-            ),
+        delimited(
+            tag("\""),
+            many0(alt((literal, map(expansion, var_expansion_inliner)))),
             tag("\""),
         ),
         |vals| RVal { vals },
     )(input)
 }
 
-/// Parser to recognize unquoted rvalues, as much as possible. These are violations of the PMS
-/// but a few usages existed in the CrOS tree at the time of writing.
+/// Parser to recognize unquoted rvalues, as much as possible.
+///
+/// These are violations of the PMS, but the ability to correctly parse these is needed to support
+/// the few organic usages within the Chrome OS tree.
 fn unquoted_rval<'a>(
     input: Span<'a>,
     prior_asgn: &HashMap<&str, RVal<'a>>,
 ) -> IResult<Span<'a>, RVal<'a>> {
+    // Helper to grab the current definition for a variable and immediately inline
+    // that definition into the Expansion's value field.
+    let var_expansion_inliner = |v| {
+        if let Value::Expansion { name, .. } = v {
+            let value = prior_asgn.get(&*name).map(|x| x.vals.clone());
+            Value::Expansion { name, value }
+        } else {
+            v
+        }
+    };
+
+    let not_ws = |c: char| !c.is_ascii_whitespace();
+    // Our best guess for an unquoted rvalue is everything up until the next piece of whitespace.
+    let unquoted_literal = map(take_while1(not_ws), Value::Literal);
+
     map(
         preceded(
             multispace0,
             many0(map(
-                alt((expansion, map(is_not(" \t\n"), Value::Literal), expansion)),
-                |v| match v {
-                    v @ Value::Literal { .. } => v,
-                    Value::Expansion { name, .. } => {
-                        let value = prior_asgn.get(name.fragment()).map(|a| a.vals.clone());
-                        Value::Expansion { name, value }
-                    }
-                },
+                alt((expansion, unquoted_literal)),
+                var_expansion_inliner,
             )),
         ),
         RVal::new,
@@ -195,10 +242,7 @@ fn expansion(input: Span<'_>) -> IResult<Span<'_>, Value<'_>> {
     map(
         preceded(
             tag("$"),
-            alt((
-                map(tuple((tag("{"), variable, tag("}"))), |res| res.1),
-                variable,
-            )),
+            alt((delimited(tag("{"), variable, tag("}")), variable)),
         ),
         |s| Value::Expansion {
             name: s,
@@ -212,7 +256,7 @@ mod tests {
     use super::*;
     use lazy_static::lazy_static;
     use nom::Slice;
-    fn null_span(text: &'static str) -> Span<'static> {
+    fn null_span(text: &str) -> Span<'_> {
         lazy_static! {
             static ref NULL_PATH: &'static Path = Path::new("");
         }
@@ -394,6 +438,19 @@ LOL="${LOL} ${LOL} ${LOL} ${LOL} ${LOL}"
     #[test]
     fn test_25_laughs_evaluation() {
         let res = full_parse(null_span(TWENTY_FIVE_LAUGHS));
+        let res = res.unwrap();
+        assert_eq!(format!("{}", res["LOL"]), TWENTY_FIVE_LAUGHS_EXPANDED);
+    }
+
+    const TWENTY_FIVE_LAUGHS_UNBRACED: &str = r#"
+LOL="lol"
+LOL="$LOL $LOL $LOL $LOL $LOL"
+LOL="$LOL $LOL $LOL $LOL $LOL"
+"#;
+
+    #[test]
+    fn test_25_laughs_unbraced_evaluation() {
+        let res = full_parse(null_span(TWENTY_FIVE_LAUGHS_UNBRACED));
         let res = res.unwrap();
         assert_eq!(format!("{}", res["LOL"]), TWENTY_FIVE_LAUGHS_EXPANDED);
     }

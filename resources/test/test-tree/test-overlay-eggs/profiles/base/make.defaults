@@ -1,0 +1,5 @@
+USE=""
+
+USE="${USE} my_flag my_other_flag"
+
+BREAKFAST_FOOD="eggs"

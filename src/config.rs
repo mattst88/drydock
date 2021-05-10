@@ -1,117 +1,206 @@
+// Copyright 2021 The Chromium OS Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
 use std::{
-    collections::HashMap,
     env, fs,
     io::Write,
     path::{Path, PathBuf},
 };
 
-use anyhow::Context;
-
-/// Load the configuration file from disk and merge it with options specified from
-/// the command line.
-pub fn get(args: &clap::ArgMatches) -> anyhow::Result<Config> {
-    let config_path = if let Some(s) = args.value_of("config_file") {
-        s.to_string()
-    } else {
-        get_default_config_path()?
-    };
-
-    let mut config = config::Config::new();
-    config.merge(config::File::with_name(&config_path)).with_context(
-        || "Unable to find a configuration file. Have you tried running `drydock config --default`?")?;
-
-    if let Some(src_path) = args.value_of("src_path") {
-        config.set("src_path", src_path)?;
-    }
-
-    Config::from_dynamic_config(&config)
-}
-
-/// Generate a default configuration file under `$XDG_CONFIG_HOME` or `~/.config/drydock`
-/// The default checkout path is `~/chromiumos/src`, if this path doesn't exist then the
-/// user is prompted for the path to their checkout.
-pub fn generate_default(args: &clap::ArgMatches) -> anyhow::Result<()> {
-    let home = env::var("HOME").with_context(|| {
-        "The HOME variable must be defined in the environment \
-        in order to generate a default configuration file."
-            .to_string()
-    })?;
-
-    let config_path = if let Some(s) = args.value_of("config_file") {
-        s.to_string()
-    } else {
-        get_default_config_path()?
-    };
-
-    let mut config = config::Config::new();
-    let mut input = String::new();
-
-    let default_checkout_guess = PathBuf::from(home.clone() + "/chromiumos/src");
-
-    // If ~/chromiumos/src exists we assume that it's a source checkout. This is a very common
-    // default choice for Chrome OS developers.
-    if default_checkout_guess.is_dir() {
-        config.set("src_path", default_checkout_guess.to_str().unwrap())?;
-        println!("Assuming ~/chromiumos/src is a Chrome OS source checkout.");
-        println!(
-            "Edit the config file at {} to change the source checkout used.",
-            &config_path
-        );
-    } else {
-        print!("Please provide the full path to the `src` directory in your checkout: ");
-        std::io::stdout().flush()?;
-        std::io::stdin().read_line(&mut input)?;
-
-        // Replace a leading tilde with the user's home directory.
-        input = input.replace("~", home.as_str());
-
-        input = input.trim().to_owned();
-
-        let input_path: &Path = input.as_ref();
-        input_path
-            .canonicalize()
-            .with_context(|| format!("The path {:?} is an invalid src root.", input_path))?;
-
-        config.set("src_path", input.as_str())?;
-    }
-    write_config_to_file(config_path.as_ref(), &config)?;
-    println!("Configuration file generated at {}", config_path);
-    Ok(())
-}
-
-/// Helper function to serialize a [config::Config] to a TOML file.
-fn write_config_to_file(file_path: &Path, config: &config::Config) -> anyhow::Result<()> {
-    let config = config
-        .clone()
-        .try_into::<HashMap<String, String>>()
-        .unwrap();
-    let config = toml::to_string(&config)?;
-    fs::create_dir_all(file_path.parent().unwrap())?;
-    let mut file = fs::File::create(&file_path)?;
-    file.write_all(config.as_bytes())?;
-    Ok(())
-}
+use anyhow::{bail, Context};
+use serde::{Deserialize, Serialize};
 
 /// A blob of all options and configuration specific to drydock.
-pub struct Config {
+#[derive(Debug, PartialEq, Eq, Deserialize, Serialize)]
+pub struct DrydockConfig {
+    #[serde(default)]
     pub src_path: PathBuf,
 }
 
-impl Config {
-    /// Create a drydock-specific [Config] struct from a dynamic [config::Config]
-    pub fn from_dynamic_config(conf: &config::Config) -> anyhow::Result<Self> {
-        let src_path = conf.get_str("src_path")?;
-        Ok(Config {
-            src_path: src_path.into(),
-        })
+impl DrydockConfig {
+    /// Load the configuration file from disk and merge it with options specified from
+    /// the command line.
+    pub fn load(
+        config_path: Option<impl AsRef<Path>>,
+        src_path: Option<impl AsRef<Path>>,
+    ) -> anyhow::Result<Self> {
+        let config_path = if let Some(p) = config_path {
+            p.as_ref().to_path_buf()
+        } else {
+            get_default_config_path()?
+        };
+
+        let mut config = config::Config::new();
+        config
+            .merge(config::File::from(config_path))
+            .with_context(|| {
+                "Unable to find a configuration file. Have you tried running \
+                `drydock config --default`?"
+            })?;
+
+        let mut dd_conf: DrydockConfig = config.try_into()?;
+
+        if let Some(src_path) = src_path {
+            dd_conf.src_path = src_path.as_ref().to_path_buf()
+        }
+
+        // Canonicalization turns paths with a tilde (e.g. `~/chromiumos/src`) or paths
+        // that are symlinks into the real paths they represent.
+        dd_conf.src_path = dd_conf.src_path.canonicalize().with_context(|| {
+            format!("Unable to canonicalize path {}", dd_conf.src_path.display())
+        })?;
+
+        Ok(dd_conf)
     }
+
+    pub fn save(&self, config_path: impl AsRef<Path>) -> anyhow::Result<()> {
+        let config = toml::to_string_pretty(&self)?;
+        fs::create_dir_all(config_path.as_ref().parent().unwrap())?;
+        let mut file = fs::File::create(config_path)?;
+        file.write_all(config.as_bytes())?;
+        Ok(())
+    }
+}
+
+impl Default for DrydockConfig {
+    fn default() -> Self {
+        DrydockConfig {
+            /// This is a very common default choice for Chrome OS developers.
+            src_path: "~/chromiumos/src".into(),
+        }
+    }
+}
+
+/// Generate a default configuration file under `$XDG_CONFIG_HOME` or `~/.config/drydock`
+///
+/// The default source path is `~/chromiumos/src`. It is an error if the specified path does
+/// not exist.
+pub fn generate_default(
+    config_path: Option<impl AsRef<Path>>,
+    src_path: Option<impl AsRef<Path>>,
+) -> anyhow::Result<()> {
+    // TODO(cjmcdonald): Typed errors would make this function body much simpler.
+    let config_path = if let Some(p) = config_path {
+        p.as_ref().to_path_buf()
+    } else {
+        get_default_config_path()?
+    };
+
+    let mut config = DrydockConfig::default();
+
+    // If the user specified a src_path argument, use that instead of the default value.
+    if let Some(p) = src_path {
+        config.src_path = p.as_ref().to_path_buf();
+    }
+
+    if config.src_path.is_dir() {
+        println!(
+            "Using {} as your Chrome OS source checkout.",
+            config.src_path.display()
+        );
+        println!(
+            "Edit the config file at {} to change the source checkout used.",
+            config_path.display()
+        );
+    } else if let Ok(p) = config.src_path.canonicalize() {
+        // A path with a tilde or a path that is a symlink are both fine as long as whatever
+        // location they end up pointing at is valid. Path canonicalization is done at config
+        // load time.
+        if p.is_dir() {
+            println!(
+                "Using {} as your Chrome OS source checkout.",
+                config.src_path.display()
+            );
+            println!(
+                "Edit the config file at {} to change the source checkout used.",
+                config_path.display()
+            );
+        } else {
+            eprintln!(
+                "{} does not appear to be a valid Chrome OS source checkout!",
+                p.display()
+            );
+            bail!(
+                "Please re-run this command and specify the path to the src/ directory of your \
+                Chrome OS source checkout via the `--src-path` argument."
+            )
+        }
+    } else {
+        eprintln!(
+            "{} does not appear to be a valid Chrome OS source checkout!",
+            config.src_path.display()
+        );
+        bail!(
+            "Please re-run this command and specify the path to the src/ directory of your \
+            Chrome OS source checkout via the `--src-path` argument."
+        )
+    }
+    config.save(&config_path)?;
+    println!("Configuration file generated at {}", config_path.display());
+    Ok(())
 }
 
 /// Helper function to hide away the details of probing the various paths a
 /// configuration file might live at.
-fn get_default_config_path() -> anyhow::Result<String> {
-    Ok(match env::var("XDG_CONFIG_HOME") {
-        Ok(s) => s,
-        Err(_) => env::var("HOME")? + "/.config",
-    } + "/drydock/config.toml")
+fn get_default_config_path() -> anyhow::Result<PathBuf> {
+    if let Ok(s) = env::var("XDG_CONFIG_HOME") {
+        Ok(s.into())
+    } else {
+        let mut p = PathBuf::from(env::var("HOME")?);
+        p.push(".config");
+        p.push("drydock");
+        p.push("config.toml");
+        Ok(p)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile;
+
+    #[test]
+    fn test_default_config_generation() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("test_config.toml");
+
+        generate_default(Some(config_path.clone()), Some(temp_dir.path())).unwrap();
+    }
+
+    #[test]
+    fn test_config_default_round_trip() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("test_config.toml");
+
+        generate_default(Some(&config_path), Some(temp_dir.path())).unwrap();
+
+        let loaded_config =
+            DrydockConfig::load(Some(config_path), Option::<PathBuf>::None).unwrap();
+
+        let default_config = DrydockConfig {
+            src_path: temp_dir.path().to_path_buf(),
+            ..Default::default()
+        };
+
+        assert_eq!(loaded_config, default_config);
+    }
+
+    #[test]
+    fn test_config_assert_save_and_load_is_same() -> anyhow::Result<()> {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let config_path = temp_dir.path().join("test_config.toml");
+
+        let config = DrydockConfig {
+            src_path: temp_dir.path().to_path_buf(),
+        };
+
+        config.save(&config_path)?;
+
+        let loaded_config = DrydockConfig::load(Some(config_path), Option::<PathBuf>::None)?;
+
+        assert_eq!(loaded_config, config);
+
+        Ok(())
+    }
 }

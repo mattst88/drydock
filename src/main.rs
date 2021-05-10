@@ -1,3 +1,7 @@
+// Copyright 2021 The Chromium OS Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
 mod commands;
 mod config;
 mod graph;
@@ -11,25 +15,27 @@ use clap::{App, Arg, SubCommand};
 
 fn main() -> anyhow::Result<()> {
     let args = App::new("drydock")
-        .version("0.0.4")
+        .version(env!("CARGO_PKG_VERSION"))
         .about("A tool for Portage profile analysis and introspection.")
         .after_help("Tip: The full `--help` flag gives more verbose explanations of options.")
         .arg(
             Arg::with_name("config_file")
-            .long("config-file")
-            .takes_value(true)
-            .help("Path to the configuration file to use.")
+                .long("config-file")
+                .takes_value(true)
+                .help("Path to the configuration file to use.")
+                .global(true),
         )
         .arg(
             Arg::with_name("src_path")
-            .long("src-path")
-            .takes_value(true)
-            .help("Path to the root of the source checkout to analyze.")
-            .long_help(
-                "Path to the root of the source checkout to analyze. Specifying this on \
-                the command line overrides the value found in the configuration file. \
-                For Chrome OS users this value will typically look like `~/chromiumos/src`."
-            )
+                .long("src-path")
+                .takes_value(true)
+                .help("Path to the root of the source checkout to analyze.")
+                .long_help(
+                    "Path to the root of the source checkout to analyze. Specifying this on \
+                    the command line overrides the value found in the configuration file. \
+                    For Chrome OS users this value will typically look like `~/chromiumos/src`.",
+                )
+                .global(true),
         )
         .subcommand(
             SubCommand::with_name("parents")
@@ -74,7 +80,10 @@ fn main() -> anyhow::Result<()> {
         )
         .subcommand(
             SubCommand::with_name("blame")
-                .about("Show the value of a variable for a profile annotated with the sources of that variable's contents.")
+                .about(
+                    "Show the value of a variable for a profile annotated with the sources \
+                        of that variable's contents.",
+                )
                 .arg(
                     Arg::with_name("profile")
                         .short("p")
@@ -121,10 +130,13 @@ fn main() -> anyhow::Result<()> {
         .get_matches();
 
     if let ("config", _) = args.subcommand() {
-        crate::config::generate_default(&args)?
+        crate::config::generate_default(args.value_of("config_file"), args.value_of("src_path"))?
     }
 
-    let config = crate::config::get(&args)?;
+    let config = crate::config::DrydockConfig::load(
+        args.value_of("config_file"),
+        args.value_of("src_path"),
+    )?;
 
     match args.subcommand() {
         ("config", _) => {}

@@ -1,3 +1,7 @@
+// Copyright 2021 The Chromium OS Authors. All rights reserved.
+// Use of this source code is governed by a BSD-style license that can be
+// found in the LICENSE file.
+
 use std::{
     collections::HashMap,
     convert::TryFrom,
@@ -65,16 +69,11 @@ pub struct OverlayTablePiece {
 impl Drop for OverlayTablePiece {
     fn drop(&mut self) {
         let mut table = self.table.lock().unwrap();
-        let map = std::mem::replace(&mut self.map, HashMap::new());
-        for (k, v) in map {
-            table.map.insert(k, v);
-        }
+        table.map.extend(self.map.drain());
+        drop(table);
 
         let mut errs = self.errs.lock().unwrap();
-        let local_errs = std::mem::take(&mut self.local_errs);
-        for e in local_errs {
-            errs.push(e);
-        }
+        errs.extend(self.local_errs.drain(..));
     }
 }
 
@@ -88,11 +87,10 @@ impl ignore::ParallelVisitor for OverlayTablePiece {
                 {
                     Ok(_) => {
                         for p in overlay.profiles.values_mut() {
-                            match p.parse_conf().with_context(|| {
+                            match p.parse_and_ingest_conf().with_context(|| {
                                 format!(
-                                    "Failed while parsing {:?}:{} conf!",
-                                    dir.path().components().last().unwrap(),
-                                    p.name
+                                    "Failed while parsing {}",
+                                    dir.path().join(&p.name).display()
                                 )
                             }) {
                                 Ok(_) => continue,
@@ -115,5 +113,61 @@ impl ignore::ParallelVisitor for OverlayTablePiece {
         } else {
             WalkState::Continue
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::path::{Path, PathBuf};
+
+    fn test_data_dir<I, P>(subdir_components: I) -> PathBuf
+    where
+        I: IntoIterator<Item = P>,
+        P: AsRef<Path>,
+    {
+        let mut dir: PathBuf = [env!("CARGO_MANIFEST_DIR"), "resources", "test"]
+            .iter()
+            .collect();
+        dir.extend(subdir_components.into_iter());
+        dir
+    }
+
+    #[test]
+    fn test_table_builder_basic() -> anyhow::Result<()> {
+        let test_tree_dir = test_data_dir(&["test-tree"]);
+
+        let mut walker = ignore::WalkBuilder::new(&test_tree_dir);
+        walker.filter_entry(|dir| dir.path().is_dir());
+
+        let mut table = OverlayTableBuilder::new();
+
+        let walker = walker.build_parallel();
+
+        walker.visit(&mut table);
+
+        let table = OverlayTable::try_from(table)?;
+
+        // The table should have exactly 3 overlays: `spam`, `ham`, and `eggs`.
+        assert_eq!(table.map.len(), 3);
+
+        Ok(())
+    }
+
+    #[test]
+    #[should_panic(expected = "Syntax error at line 6")]
+    fn test_table_builder_fails_on_bad_make_default() {
+        let test_tree_dir = test_data_dir(&["broken-test-tree"]);
+
+        let mut walker = ignore::WalkBuilder::new(&test_tree_dir);
+        walker.filter_entry(|dir| dir.path().is_dir());
+
+        let mut table = OverlayTableBuilder::new();
+
+        let walker = walker.build_parallel();
+        walker.visit(&mut table);
+
+        let _table = OverlayTable::try_from(table).unwrap();
     }
 }
