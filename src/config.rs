@@ -8,7 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use anyhow::{bail, Context};
+use anyhow::{anyhow, bail, Context};
 use serde::{Deserialize, Serialize};
 
 /// A blob of all options and configuration specific to drydock.
@@ -45,8 +45,19 @@ impl DrydockConfig {
             dd_conf.src_path = src_path.as_ref().to_path_buf()
         }
 
-        // Canonicalization turns paths with a tilde (e.g. `~/chromiumos/src`) or paths
-        // that are symlinks into the real paths they represent.
+        // Resolve tildes in src_path to a concrete directory.
+        dd_conf.src_path = dd_conf
+            .src_path
+            .to_str()
+            .map(|s| PathBuf::from(shellexpand::tilde(s).as_ref()))
+            .ok_or_else(|| {
+                anyhow!(
+                    "Unable to shell expand your source path {}",
+                    dd_conf.src_path.display()
+                )
+            })?;
+
+        // Canonicalize paths that are symlinks into the real paths they represent.
         dd_conf.src_path = dd_conf.src_path.canonicalize().with_context(|| {
             format!("Unable to canonicalize path {}", dd_conf.src_path.display())
         })?;
@@ -94,6 +105,18 @@ pub fn generate_default(
         config.src_path = p.as_ref().to_path_buf();
     }
 
+    // Resolve tildes in src_path to a concrete directory.
+    config.src_path = config
+        .src_path
+        .to_str()
+        .map(|s| PathBuf::from(shellexpand::tilde(s).as_ref()))
+        .ok_or_else(|| {
+            anyhow!(
+                "Unable to shell expand your source path {}",
+                config.src_path.display()
+            )
+        })?;
+
     if config.src_path.is_dir() {
         println!(
             "Using {} as your Chrome OS source checkout.",
@@ -104,9 +127,8 @@ pub fn generate_default(
             config_path.display()
         );
     } else if let Ok(p) = config.src_path.canonicalize() {
-        // A path with a tilde or a path that is a symlink are both fine as long as whatever
-        // location they end up pointing at is valid. Path canonicalization is done at config
-        // load time.
+        // A path that is a symlink is fine as long as whatever location it is pointed at is valid.
+        // Path canonicalization is done at configuration load time.
         if p.is_dir() {
             println!(
                 "Using {} as your Chrome OS source checkout.",
