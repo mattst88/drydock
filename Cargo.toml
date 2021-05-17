@@ -1,6 +1,6 @@
 [package]
 name = "drydock"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Chris McDonald <cjmcdonald@chromium.org>"]
 edition = "2018"
 license = "Google-BSD"
@@ -35,5 +35,6 @@ default-features = false
 features = ["graphmap"]
 
 [dev-dependencies]
+assert_cmd = "1.0.4"
 proptest = "1"
 tempfile = "3"

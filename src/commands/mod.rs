@@ -10,6 +10,7 @@ mod blame;
 
 pub use blame::blame;
 
+use std::fmt::Write;
 use std::str::FromStr;
 
 use clap::ArgMatches;
@@ -54,8 +55,12 @@ pub fn eval(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<()>
     let overlay_table = build_overlay_map(config)?;
 
     let vals = overlay_table.compute_variable(&profile, target_var)?;
-    let output: String = vals.into_iter().map(|s| *s).collect();
-    println!("{}", output);
+
+    let mut output = String::new();
+    vals.into_iter()
+        .try_for_each(|s| write!(&mut output, "{} ", *s))?;
+
+    println!("{}", output.trim_end());
 
     Ok(())
 }
