@@ -8,6 +8,9 @@ mod graph;
 mod parse;
 mod portage;
 
+#[cfg(test)]
+mod test_util;
+
 #[macro_use]
 extern crate rental;
 

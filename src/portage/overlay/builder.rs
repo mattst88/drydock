@@ -120,19 +120,7 @@ impl ignore::ParallelVisitor for OverlayTablePiece {
 mod tests {
     use super::*;
 
-    use std::path::{Path, PathBuf};
-
-    fn test_data_dir<I, P>(subdir_components: I) -> PathBuf
-    where
-        I: IntoIterator<Item = P>,
-        P: AsRef<Path>,
-    {
-        let mut dir: PathBuf = [env!("CARGO_MANIFEST_DIR"), "resources", "test"]
-            .iter()
-            .collect();
-        dir.extend(subdir_components.into_iter());
-        dir
-    }
+    use crate::test_util::test_data_dir;
 
     #[test]
     fn test_table_builder_basic() -> anyhow::Result<()> {

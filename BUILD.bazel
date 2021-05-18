@@ -1,0 +1,64 @@
+# Copyright 2021 The Chromium OS Authors. All rights reserved.
+# Use of this source code is governed by a BSD-style license that can be
+# found in the LICENSE file.
+
+# Bazel build rules for `drydock` binary and tests.
+# Crate dependency rules generated with `cargo-raze`.
+
+
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+
+package(default_visibility = ["//visibility:public"])
+
+rust_binary(
+    name = "drydock",
+    srcs = glob(["src/**/*.rs"]),
+    version = "0.1.1",
+    deps = [
+        "//cargo:anyhow",
+        "//cargo:clap",
+        "//cargo:colored",
+        "//cargo:config",
+        "//cargo:float_ord",
+        "//cargo:ignore",
+        "//cargo:lazy_static",
+        "//cargo:nom",
+        "//cargo:nom_locate",
+        "//cargo:petgraph",
+        "//cargo:regex",
+        "//cargo:rental",
+        "//cargo:serde",
+        "//cargo:shellexpand",
+        "//cargo:source_span",
+        "//cargo:strsim",
+        "//cargo:toml",
+        "//cargo:walkdir",
+    ],
+)
+
+rust_test(
+    name = "drydock_unittest",
+    size = "small",
+    crate = ":drydock",
+    data = glob(["resources/test/**"]),
+    deps = [
+        "//cargo:proptest",
+        "//cargo:tempfile",
+    ],
+)
+
+rust_test(
+    name = "cli_test",
+    size = "small",
+    srcs = [
+        "tests/cli.rs",
+        "tests/test_util.rs",
+    ],
+    crate_root = "tests/cli.rs",
+    data = glob(["resources/test/**"]) + [":drydock"],
+    deps = [
+        "//cargo:anyhow",
+        "//cargo:assert_cmd",
+        "//cargo:tempfile",
+    ],
+)

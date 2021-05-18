@@ -4,23 +4,14 @@
 
 //! Integration tests for CLI usage of `drydock`.
 
-use std::path::{Path, PathBuf};
+mod test_util;
+
 use std::process::Command;
 
 use assert_cmd::prelude::*;
 use tempfile;
 
-fn test_data_dir<I, P>(subdir_components: I) -> PathBuf
-where
-    I: IntoIterator<Item = P>,
-    P: AsRef<Path>,
-{
-    let mut dir: PathBuf = [env!("CARGO_MANIFEST_DIR"), "resources", "test"]
-        .iter()
-        .collect();
-    dir.extend(subdir_components.into_iter());
-    dir
-}
+use test_util::test_data_dir;
 
 #[test]
 fn assert_basic_eval_output_looks_right() -> anyhow::Result<()> {
