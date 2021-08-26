@@ -33,14 +33,12 @@ pub fn parents(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<
 
     let overlay_table = build_overlay_map(config)?;
 
-    if sub_args.is_present("tree") {
+    if sub_args.is_present("graph") {
+        graph::dump_graphviz(std::io::stdout(), &overlay_table, &targets)?;
+    } else {
         for target in targets.iter() {
             overlay_table.print_profile_tree(std::io::stdout(), target)?;
         }
-    }
-
-    if sub_args.is_present("graph") {
-        graph::dump_graphviz(std::io::stdout(), &overlay_table, &targets)?;
     }
 
     Ok(())

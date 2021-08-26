@@ -42,19 +42,13 @@ fn main() -> anyhow::Result<()> {
         )
         .subcommand(
             SubCommand::with_name("parents")
-                .about("Show the inheritance tree for the target profile.")
+                .about("Show the inheritance tree for the target profile; prints an indented tree by default.")
                 .arg(
                     Arg::with_name("profile")
                         .takes_value(true)
                         .required(true)
                         .multiple(true)
                         .help("The target profile. Example: chromiumos:base"),
-                )
-                .arg(
-                    Arg::with_name("tree")
-                        .long("tree")
-                        .takes_value(false)
-                        .help("Print an indented tree of the profile parent structure."),
                 )
                 .arg(
                     Arg::with_name("graph")
