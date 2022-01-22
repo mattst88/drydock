@@ -34,6 +34,7 @@ rust_binary(
         "//cargo:toml",
         "//cargo:walkdir",
     ],
+    rustc_flags = ["-A", "proc_macro_back_compat"],
 )
 
 rust_test(
@@ -45,6 +46,7 @@ rust_test(
         "//cargo:proptest",
         "//cargo:tempfile",
     ],
+    rustc_flags = ["-A", "proc_macro_back_compat"],
 )
 
 rust_test(

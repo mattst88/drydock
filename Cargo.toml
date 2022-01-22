@@ -47,6 +47,13 @@ tempfile = "3"
 workspace_path = "//cargo"
 package_aliases_dir = "cargo"
 targets = [
+    # TODO: Change to x86_64-pc-linux-gnu once raze understands that target.
     "x86_64-unknown-linux-gnu",
 ]
 genmode = "Remote"
+
+[package.metadata.raze.crates.bstr.'>=0.1']
+compile_data_attr = "glob([\"src/unicode/fsm/*.dfa\"])"
+
+[package.metadata.raze.crates.assert_cmd.'^1']
+compile_data_attr = "[\"README.md\"]"

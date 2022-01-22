@@ -4,3 +4,4 @@ Cargo.lock
 
 # Bazel-related symlinks
 bazel-*
+.bazelrc
