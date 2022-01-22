@@ -10,9 +10,10 @@ load("@bazel_skylib//lib:selects.bzl", "selects")
 
 # buildifier: disable=load
 load(
-    "@rules_rust//rust:rust.bzl",
+    "@rules_rust//rust:defs.bzl",
     "rust_binary",
     "rust_library",
+    "rust_proc_macro",
     "rust_test",
 )
 
@@ -61,7 +62,7 @@ cargo_build_script(
     version = "5.1.2",
     visibility = ["//visibility:private"],
     deps = [
-        "@raze__version_check__0_9_3//:version_check",
+        "@raze__version_check__0_9_4//:version_check",
     ],
 )
 
@@ -94,7 +95,6 @@ rust_library(
         "std",
     ],
     crate_root = "src/lib.rs",
-    crate_type = "lib",
     data = [],
     edition = "2018",
     rustc_flags = [
@@ -102,6 +102,7 @@ rust_library(
     ],
     tags = [
         "cargo-raze",
+        "crate-name=nom",
         "manual",
     ],
     version = "5.1.2",
@@ -109,7 +110,7 @@ rust_library(
     deps = [
         ":nom_build_script",
         "@raze__lexical_core__0_7_6//:lexical_core",
-        "@raze__memchr__2_4_0//:memchr",
+        "@raze__memchr__2_4_1//:memchr",
     ],
 )
 

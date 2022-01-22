@@ -14,7 +14,7 @@ licenses([
 # Aliased targets
 alias(
     name = "anyhow",
-    actual = "@raze__anyhow__1_0_40//:anyhow",
+    actual = "@raze__anyhow__1_0_52//:anyhow",
     tags = [
         "cargo-raze",
         "manual",
@@ -23,7 +23,7 @@ alias(
 
 alias(
     name = "assert_cmd",
-    actual = "@raze__assert_cmd__1_0_4//:assert_cmd",
+    actual = "@raze__assert_cmd__1_0_8//:assert_cmd",
     tags = [
         "cargo-raze",
         "manual",
@@ -32,7 +32,7 @@ alias(
 
 alias(
     name = "clap",
-    actual = "@raze__clap__2_33_3//:clap",
+    actual = "@raze__clap__2_34_0//:clap",
     tags = [
         "cargo-raze",
         "manual",
@@ -68,7 +68,7 @@ alias(
 
 alias(
     name = "ignore",
-    actual = "@raze__ignore__0_4_17//:ignore",
+    actual = "@raze__ignore__0_4_18//:ignore",
     tags = [
         "cargo-raze",
         "manual",
@@ -140,7 +140,7 @@ alias(
 
 alias(
     name = "serde",
-    actual = "@raze__serde__1_0_126//:serde",
+    actual = "@raze__serde__1_0_134//:serde",
     tags = [
         "cargo-raze",
         "manual",
@@ -158,7 +158,7 @@ alias(
 
 alias(
     name = "source_span",
-    actual = "@raze__source_span__2_5_1//:source_span",
+    actual = "@raze__source_span__2_7_0//:source_span",
     tags = [
         "cargo-raze",
         "manual",
@@ -176,7 +176,7 @@ alias(
 
 alias(
     name = "tempfile",
-    actual = "@raze__tempfile__3_2_0//:tempfile",
+    actual = "@raze__tempfile__3_3_0//:tempfile",
     tags = [
         "cargo-raze",
         "manual",

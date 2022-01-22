@@ -10,9 +10,10 @@ load("@bazel_skylib//lib:selects.bzl", "selects")
 
 # buildifier: disable=load
 load(
-    "@rules_rust//rust:rust.bzl",
+    "@rules_rust//rust:defs.bzl",
     "rust_binary",
     "rust_library",
+    "rust_proc_macro",
     "rust_test",
 )
 
@@ -79,7 +80,6 @@ rust_library(
         "table",
     ],
     crate_root = "src/lib.rs",
-    crate_type = "lib",
     data = [],
     edition = "2018",
     rustc_flags = [
@@ -87,6 +87,7 @@ rust_library(
     ],
     tags = [
         "cargo-raze",
+        "crate-name=lexical-core",
         "manual",
     ],
     version = "0.7.6",
@@ -94,9 +95,9 @@ rust_library(
     deps = [
         ":lexical_core_build_script",
         "@raze__arrayvec__0_5_2//:arrayvec",
-        "@raze__bitflags__1_2_1//:bitflags",
+        "@raze__bitflags__1_3_2//:bitflags",
         "@raze__cfg_if__1_0_0//:cfg_if",
-        "@raze__ryu__1_0_5//:ryu",
+        "@raze__ryu__1_0_9//:ryu",
         "@raze__static_assertions__1_1_0//:static_assertions",
     ],
 )

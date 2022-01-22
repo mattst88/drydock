@@ -10,9 +10,10 @@ load("@bazel_skylib//lib:selects.bzl", "selects")
 
 # buildifier: disable=load
 load(
-    "@rules_rust//rust:rust.bzl",
+    "@rules_rust//rust:defs.bzl",
     "rust_binary",
     "rust_library",
+    "rust_proc_macro",
     "rust_test",
 )
 
@@ -38,7 +39,6 @@ rust_library(
         "wait-timeout",
     ],
     crate_root = "src/lib.rs",
-    crate_type = "lib",
     data = [],
     edition = "2018",
     rustc_flags = [
@@ -46,6 +46,7 @@ rust_library(
     ],
     tags = [
         "cargo-raze",
+        "crate-name=rusty-fork",
         "manual",
     ],
     version = "0.3.0",
@@ -53,7 +54,7 @@ rust_library(
     deps = [
         "@raze__fnv__1_0_7//:fnv",
         "@raze__quick_error__1_2_3//:quick_error",
-        "@raze__tempfile__3_2_0//:tempfile",
+        "@raze__tempfile__3_3_0//:tempfile",
         "@raze__wait_timeout__0_2_0//:wait_timeout",
     ],
 )
