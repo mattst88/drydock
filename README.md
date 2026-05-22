@@ -85,14 +85,3 @@ while in the project directory. The output binary can then be found at
 ```sh
 cargo run --release -- ${YOUR_ARGS?}
 ```
-
-### Building with Bazel
-
-`drydock` fully supports being built via [Bazel](https://bazel.build/).
-
- To run `drydock`'s test suite via Bazel, run `bazel test :all` from your
-`drydock` checkout.
-
-To build an optimized version of the `drydock` binary suitable for installation,
-run `bazel build :drydock -c opt` from within your drydock checkout. The binary
-can then be found at `bazel-bin/drydock`.
