@@ -190,7 +190,7 @@ fn quoted_rval<'a>(
 /// Parser to recognize unquoted rvalues, as much as possible.
 ///
 /// These are violations of the PMS, but the ability to correctly parse these is needed to support
-/// the few organic usages within the Chrome OS tree.
+/// these are violations of the PMS occasionally found in the wild.
 fn unquoted_rval<'a>(
     input: Span<'a>,
     prior_asgn: &HashMap<&str, RVal<'a>>,

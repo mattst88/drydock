@@ -42,7 +42,7 @@ impl DrydockConfig {
                 .merge(config::File::from(config_path))
                 .with_context(|| {
                     "Unable to find a configuration file. Have you tried running \
-                    `drydock config --default`? You can specify a repos path with --src-path."
+                    `drydock config --default`? You can specify a repositories path with --src-path."
                 })?;
 
             config.try_into()?
@@ -87,7 +87,7 @@ impl Default for DrydockConfig {
 
 /// Generate a default configuration file under `$XDG_CONFIG_HOME` or `~/.config/drydock`
 ///
-/// The default source path is `~/chromiumos/src`. It is an error if the specified path does
+/// The default source path is `/var/db/repos`. It is an error if the specified path does
 /// not exist.
 pub fn generate_default(
     config_path: Option<impl AsRef<Path>>,
@@ -120,31 +120,31 @@ pub fn generate_default(
         })?;
 
     if config.src_path.is_dir() {
-        println!("Using {} as your repos path.", config.src_path.display());
+        println!("Using {} as your repositories path.", config.src_path.display());
         println!(
-            "Edit the config file at {} to change the repos path.",
+            "Edit the config file at {} to change the repositories path.",
             config_path.display()
         );
     } else if let Ok(p) = config.src_path.canonicalize() {
         // A path that is a symlink is fine as long as whatever location it is pointed at is valid.
         // Path canonicalization is done at configuration load time.
         if p.is_dir() {
-            println!("Using {} as your repos path.", config.src_path.display());
+            println!("Using {} as your repositories path.", config.src_path.display());
             println!(
-                "Edit the config file at {} to change the repos path.",
+                "Edit the config file at {} to change the repositories path.",
                 config_path.display()
             );
         } else {
             eprintln!("{} is not a valid directory!", p.display());
             bail!(
-                "Please re-run this command and specify the path to your repos directory \
+                "Please re-run this command and specify the path to your repositories directory \
                 via the `--src-path` argument."
             )
         }
     } else {
         eprintln!("{} is not a valid directory!", config.src_path.display());
         bail!(
-            "Please re-run this command and specify the path to your repos directory \
+            "Please re-run this command and specify the path to your repositories directory \
             via the `--src-path` argument."
         )
     }

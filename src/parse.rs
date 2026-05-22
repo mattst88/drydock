@@ -77,7 +77,7 @@ pub fn parse_parent_file(body: Span) -> anyhow::Result<Vec<ProfileReference>> {
 }
 
 /// Parse layout.conf and return only the overlay's name for now.
-/// repo-name = chromiumos
+/// repo-name = gentoo
 pub fn parse_layout_conf(body: Span<'_>) -> anyhow::Result<&str> {
     LAYOUT_REGEX
         .captures(body.fragment())
@@ -100,16 +100,16 @@ mod tests {
     }
     const SAMPLE: &str = "# This is a comment.
 ..
-../../../../../targets/sdk
-chromiumos:features/llvm
+../../base
+gentoo:default/linux/amd64/23.0
 
 ";
 
     const LAYOUT_SAMPLE: &str = "
 cache-format = md5-dict
-masters = portage-stable eclass-overlay
+masters = gentoo
 profile-formats = portage-2
-repo-name = chromiumos
+repo-name = my-overlay
 thin-manifests = true
 use-manifests = strict
 ";
@@ -121,25 +121,25 @@ use-manifests = strict
             vec![
                 ProfileReference::Relative { path: "..".into() },
                 ProfileReference::Relative {
-                    path: "../../../../../targets/sdk".into()
+                    path: "../../base".into()
                 },
                 ProfileReference::Absolute {
-                    overlay: "chromiumos".into(),
-                    path: "features/llvm".into()
+                    overlay: "gentoo".into(),
+                    path: "default/linux/amd64/23.0".into()
                 },
             ]
         );
     }
 
-    const NO_LINEFEED: &str = "chromiumos:features/selinux";
+    const NO_LINEFEED: &str = "gentoo:default/linux/amd64/23.0";
 
     #[test]
     fn test_no_linefeed_parent_file_parse() {
         assert_eq!(
             parse_parent_file(null_span(NO_LINEFEED)).unwrap(),
             vec![ProfileReference::Absolute {
-                overlay: "chromiumos".into(),
-                path: "features/selinux".into()
+                overlay: "gentoo".into(),
+                path: "default/linux/amd64/23.0".into()
             },]
         )
     }
@@ -156,7 +156,7 @@ use-manifests = strict
     fn test_layout_regex() {
         assert_eq!(
             parse_layout_conf(null_span(LAYOUT_SAMPLE)).unwrap(),
-            "chromiumos"
+            "my-overlay"
         )
     }
 }

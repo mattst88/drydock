@@ -32,11 +32,11 @@ fn main() -> anyhow::Result<()> {
             Arg::with_name("src_path")
                 .long("src-path")
                 .takes_value(true)
-                .help("Path to the root of the source checkout to analyze.")
+                .help("Path to the directory containing your repositories.")
                 .long_help(
-                    "Path to the directory containing your Portage repositories. Specifying this \
+                    "Path to the directory containing your repositories. Specifying this \
                     on the command line overrides the value found in the configuration file. \
-                    Typically /var/db/repos or a directory containing overlay checkouts.",
+                    Typically /var/db/repos.",
                 )
                 .global(true),
         )
@@ -48,7 +48,7 @@ fn main() -> anyhow::Result<()> {
                         .takes_value(true)
                         .required(true)
                         .multiple(true)
-                        .help("The target profile. Example: chromiumos:base"),
+                        .help("The target profile. Example: gentoo:default/linux/amd64/23.0"),
                 )
                 .arg(
                     Arg::with_name("graph")
