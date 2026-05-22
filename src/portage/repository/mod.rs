@@ -5,7 +5,6 @@
 //! Module containing functions for constructing and traversing Portage repositories and their profiles.
 
 mod builder;
-mod traversal;
 
 use std::collections::{BTreeMap, HashMap};
 use std::convert::TryFrom;

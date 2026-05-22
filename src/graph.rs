@@ -19,7 +19,7 @@ pub fn dump_graphviz(
     table: &RepositoryTable,
     roots: &[ProfileKey],
 ) -> anyhow::Result<()> {
-    let mut graphmap: DiGraphMap<&str, ()> = DiGraphMap::new();
+    let mut graphmap: DiGraphMap<&str, (), std::hash::RandomState> = DiGraphMap::default();
 
     for root in roots {
         graphmap.add_node(root.full_name());
