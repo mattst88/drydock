@@ -34,9 +34,9 @@ fn main() -> anyhow::Result<()> {
                 .takes_value(true)
                 .help("Path to the root of the source checkout to analyze.")
                 .long_help(
-                    "Path to the root of the source checkout to analyze. Specifying this on \
-                    the command line overrides the value found in the configuration file. \
-                    For Chrome OS users this value will typically look like `~/chromiumos/src`.",
+                    "Path to the directory containing your Portage repositories. Specifying this \
+                    on the command line overrides the value found in the configuration file. \
+                    Typically /var/db/repos or a directory containing overlay checkouts.",
                 )
                 .global(true),
         )

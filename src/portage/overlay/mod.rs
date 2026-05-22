@@ -156,17 +156,23 @@ impl TryFrom<&Path> for Overlay {
                 metadata_path.display()
             )
         })?;
-        let repo_name = parse::parse_layout_conf(LocatedSpan::new_extra(
+        let repo_name = match parse::parse_layout_conf(LocatedSpan::new_extra(
             &layout_body,
             metadata_path.as_path(),
-        ))
-        .with_context(|| {
-            format!(
-                "Failed to parse layout.conf file at {}",
-                metadata_path.display()
-            )
-        })?;
-        let overlay = Overlay::new(repo_name.into(), value.into());
+        )) {
+            Ok(name) => name.to_string(),
+            Err(_) => value
+                .file_name()
+                .and_then(|n| n.to_str())
+                .with_context(|| {
+                    format!(
+                        "No repo-name in layout.conf and directory name is not valid UTF-8: {}",
+                        value.display()
+                    )
+                })?
+                .to_string(),
+        };
+        let overlay = Overlay::new(repo_name, value.into());
         Ok(overlay)
     }
 }
@@ -552,12 +558,12 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Failed to parse layout.conf file")]
-    fn test_assert_overlay_constructor_fails_on_malformed_layout_conf() {
+    fn test_assert_overlay_constructor_falls_back_to_dir_name_on_missing_repo_name() {
         let test_overlay_path =
             test_data_dir(&["malformed-test-tree", "test-overlay-malformed-overlay"]);
 
-        Overlay::try_from(test_overlay_path.as_path()).unwrap();
+        let overlay = Overlay::try_from(test_overlay_path.as_path()).unwrap();
+        assert_eq!(overlay.name, "test-overlay-malformed-overlay");
     }
 
     #[test]

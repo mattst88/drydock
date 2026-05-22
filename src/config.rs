@@ -25,25 +25,28 @@ impl DrydockConfig {
         config_path: Option<impl AsRef<Path>>,
         src_path: Option<impl AsRef<Path>>,
     ) -> anyhow::Result<Self> {
-        let config_path = if let Some(p) = config_path {
-            p.as_ref().to_path_buf()
+        let mut dd_conf = if let Some(ref p) = src_path {
+            // src_path on CLI is sufficient; no config file needed.
+            DrydockConfig {
+                src_path: p.as_ref().to_path_buf(),
+            }
         } else {
-            get_default_config_path()?
+            let config_path = if let Some(p) = config_path {
+                p.as_ref().to_path_buf()
+            } else {
+                get_default_config_path()?
+            };
+
+            let mut config = config::Config::new();
+            config
+                .merge(config::File::from(config_path))
+                .with_context(|| {
+                    "Unable to find a configuration file. Have you tried running \
+                    `drydock config --default`? You can specify a repos path with --src-path."
+                })?;
+
+            config.try_into()?
         };
-
-        let mut config = config::Config::new();
-        config
-            .merge(config::File::from(config_path))
-            .with_context(|| {
-                "Unable to find a configuration file. Have you tried running \
-                `drydock config --default`?"
-            })?;
-
-        let mut dd_conf: DrydockConfig = config.try_into()?;
-
-        if let Some(src_path) = src_path {
-            dd_conf.src_path = src_path.as_ref().to_path_buf()
-        }
 
         // Resolve tildes in src_path to a concrete directory.
         dd_conf.src_path = dd_conf
@@ -77,8 +80,7 @@ impl DrydockConfig {
 impl Default for DrydockConfig {
     fn default() -> Self {
         DrydockConfig {
-            /// This is a very common default choice for Chrome OS developers.
-            src_path: "~/chromiumos/src".into(),
+            src_path: "/var/db/repos".into(),
         }
     }
 }
@@ -118,44 +120,32 @@ pub fn generate_default(
         })?;
 
     if config.src_path.is_dir() {
+        println!("Using {} as your repos path.", config.src_path.display());
         println!(
-            "Using {} as your Chrome OS source checkout.",
-            config.src_path.display()
-        );
-        println!(
-            "Edit the config file at {} to change the source checkout used.",
+            "Edit the config file at {} to change the repos path.",
             config_path.display()
         );
     } else if let Ok(p) = config.src_path.canonicalize() {
         // A path that is a symlink is fine as long as whatever location it is pointed at is valid.
         // Path canonicalization is done at configuration load time.
         if p.is_dir() {
+            println!("Using {} as your repos path.", config.src_path.display());
             println!(
-                "Using {} as your Chrome OS source checkout.",
-                config.src_path.display()
-            );
-            println!(
-                "Edit the config file at {} to change the source checkout used.",
+                "Edit the config file at {} to change the repos path.",
                 config_path.display()
             );
         } else {
-            eprintln!(
-                "{} does not appear to be a valid Chrome OS source checkout!",
-                p.display()
-            );
+            eprintln!("{} is not a valid directory!", p.display());
             bail!(
-                "Please re-run this command and specify the path to the src/ directory of your \
-                Chrome OS source checkout via the `--src-path` argument."
+                "Please re-run this command and specify the path to your repos directory \
+                via the `--src-path` argument."
             )
         }
     } else {
-        eprintln!(
-            "{} does not appear to be a valid Chrome OS source checkout!",
-            config.src_path.display()
-        );
+        eprintln!("{} is not a valid directory!", config.src_path.display());
         bail!(
-            "Please re-run this command and specify the path to the src/ directory of your \
-            Chrome OS source checkout via the `--src-path` argument."
+            "Please re-run this command and specify the path to your repos directory \
+            via the `--src-path` argument."
         )
     }
     config.save(&config_path)?;

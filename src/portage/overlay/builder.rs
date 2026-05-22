@@ -17,14 +17,12 @@ use super::{Overlay, OverlayTable};
 #[derive(Debug)]
 pub struct OverlayTableBuilder {
     pub(super) table: Arc<Mutex<OverlayTable>>,
-    pub(super) errs: Arc<Mutex<Vec<anyhow::Error>>>,
 }
 
 impl OverlayTableBuilder {
     pub fn new() -> Self {
         Self {
             table: Arc::new(Mutex::new(OverlayTable::new())),
-            errs: Arc::new(Mutex::new(Default::default())),
         }
     }
 }
@@ -40,8 +38,6 @@ impl<'s> ignore::ParallelVisitorBuilder<'s> for OverlayTableBuilder {
         Box::new(OverlayTablePiece {
             table: Arc::clone(&self.table),
             map: HashMap::new(),
-            errs: Arc::clone(&self.errs),
-            local_errs: Default::default(),
         })
     }
 }
@@ -49,10 +45,6 @@ impl<'s> ignore::ParallelVisitorBuilder<'s> for OverlayTableBuilder {
 impl TryFrom<OverlayTableBuilder> for OverlayTable {
     type Error = anyhow::Error;
     fn try_from(other: OverlayTableBuilder) -> Result<Self, Self::Error> {
-        let errs = Arc::try_unwrap(other.errs).unwrap().into_inner().unwrap();
-        if !errs.is_empty() {
-            return Err(errs.into_iter().next().unwrap());
-        }
         Ok(Arc::try_unwrap(other.table).unwrap().into_inner()?)
     }
 }
@@ -61,19 +53,13 @@ impl TryFrom<OverlayTableBuilder> for OverlayTable {
 #[derive(Debug)]
 pub struct OverlayTablePiece {
     table: Arc<Mutex<OverlayTable>>,
-    errs: Arc<Mutex<Vec<anyhow::Error>>>,
     map: HashMap<String, Overlay>,
-    local_errs: Vec<anyhow::Error>,
 }
 
 impl Drop for OverlayTablePiece {
     fn drop(&mut self) {
         let mut table = self.table.lock().unwrap();
         table.map.extend(self.map.drain());
-        drop(table);
-
-        let mut errs = self.errs.lock().unwrap();
-        errs.extend(self.local_errs.drain(..));
     }
 }
 
@@ -86,6 +72,7 @@ impl ignore::ParallelVisitor for OverlayTablePiece {
                     .with_context(|| format!("Failed while parsing profiles of {}", &overlay.name))
                 {
                     Ok(_) => {
+                        let mut failed = false;
                         for p in overlay.profiles.values_mut() {
                             match p.parse_and_ingest_conf().with_context(|| {
                                 format!(
@@ -95,17 +82,20 @@ impl ignore::ParallelVisitor for OverlayTablePiece {
                             }) {
                                 Ok(_) => continue,
                                 Err(e) => {
-                                    self.local_errs.push(e);
-                                    return WalkState::Quit;
+                                    eprintln!("Warning: skipping overlay {}: {}", overlay.name, e);
+                                    failed = true;
+                                    break;
                                 }
                             }
                         }
-                        self.map.insert(overlay.name.clone(), overlay);
+                        if !failed {
+                            self.map.insert(overlay.name.clone(), overlay);
+                        }
                         WalkState::Skip
                     }
                     Err(e) => {
-                        self.local_errs.push(e);
-                        WalkState::Quit
+                        eprintln!("Warning: skipping overlay at {}: {}", dir.path().display(), e);
+                        WalkState::Continue
                     }
                 },
                 Err(_) => WalkState::Continue,
@@ -144,8 +134,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Syntax error at line 6")]
-    fn test_table_builder_fails_on_bad_make_default() {
+    fn test_table_builder_skips_bad_make_default() {
         let test_tree_dir = test_data_dir(&["broken-test-tree"]);
 
         let mut walker = ignore::WalkBuilder::new(&test_tree_dir);
@@ -156,6 +145,8 @@ mod tests {
         let walker = walker.build_parallel();
         walker.visit(&mut table);
 
-        let _table = OverlayTable::try_from(table).unwrap();
+        // Overlay with bad make.defaults is skipped, not fatal.
+        let table = OverlayTable::try_from(table).unwrap();
+        assert_eq!(table.map.len(), 0);
     }
 }
