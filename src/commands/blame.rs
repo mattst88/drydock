@@ -39,14 +39,14 @@ use crate::{
 /// union of every profile's definition of that variable.
 /// See [blame_incremental] for the implementation of incremental variable blame reporting.
 pub fn blame(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<()> {
-    let target = sub_args.value_of("profile").unwrap();
+    let target = sub_args.get_one::<String>("profile").unwrap().as_str();
     let profile = ProfileKey::from_str(target)?;
 
-    let mut target_values = sub_args.values_of("variable").unwrap();
-    let target_var = target_values.next().unwrap();
+    let mut target_values = sub_args.get_many::<String>("variable").unwrap();
+    let target_var = target_values.next().unwrap().as_str();
     let repo_table = build_repository_table(config)?;
     if repo_table.is_incremental_variable(&profile, target_var) {
-        if let Some(subtoken_prefix) = target_values.next() {
+        if let Some(subtoken_prefix) = target_values.next().map(|s| s.as_str()) {
             blame_incremental(&repo_table, &profile, target_var, subtoken_prefix)?;
         } else {
             bail!(
