@@ -152,7 +152,7 @@ fn assignment<'a>(
     separated_pair(
         variable,
         tag("="),
-        alt((quoted_rval_parser, unquoted_rval_parser)),
+        alt((quoted_rval_parser, single_quoted_rval, unquoted_rval_parser)),
     )(input)
 }
 
@@ -180,10 +180,26 @@ fn quoted_rval<'a>(
     map(
         delimited(
             tag("\""),
-            many0(alt((literal, map(expansion, var_expansion_inliner)))),
+            many0(alt((escaped_char, literal, map(expansion, var_expansion_inliner)))),
             tag("\""),
         ),
         |vals| RVal { vals },
+    )(input)
+}
+
+/// Parser to recognize single-quoted rvalues.
+///
+/// Single-quoted strings are fully literal — no variable expansion or escape sequences.
+fn single_quoted_rval(input: Span<'_>) -> IResult<Span<'_>, RVal<'_>> {
+    map(
+        delimited(tag("'"), take_while(|c| c != '\''), tag("'")),
+        |s: Span<'_>| {
+            if s.is_empty() {
+                RVal::new(vec![])
+            } else {
+                RVal::new(vec![Value::Literal(s)])
+            }
+        },
     )(input)
 }
 
@@ -224,7 +240,17 @@ fn unquoted_rval<'a>(
 
 /// Parser to recognize string literals.
 fn literal(input: Span<'_>) -> IResult<Span<'_>, Value<'_>> {
-    map(is_not("$\""), Value::Literal)(input)
+    map(is_not("$\"\\"), Value::Literal)(input)
+}
+
+/// Parser to recognize a backslash escape sequence (e.g. `\"` or `\\`).
+///
+/// The backslash and following character are both included in the returned span.
+fn escaped_char(input: Span<'_>) -> IResult<Span<'_>, Value<'_>> {
+    map(
+        recognize(preceded(tag("\\"), complete::anychar)),
+        Value::Literal,
+    )(input)
 }
 
 /// Parser to recognize variable names.
@@ -262,75 +288,31 @@ mod tests {
         }
         Span::new_extra(text, *NULL_PATH)
     }
-    const FULL_SAMPLE: &str = r#"# Copyright (c) 2015 The Chromium OS Authors. All rights reserved.
+    const FULL_SAMPLE: &str = r#"# Copyright 1999-2024 Gentoo Authors
 # Distributed under the terms of the GNU General Public License v2
 
-# Settings that are common to all host sdks.  Do not place any board specific
-# settings in here, or settings for cross-compiled targets.
-#
-# See "man 5 make.conf" and "man 5 portage" for the available options.
+ARCH="amd64"
+ACCEPT_KEYWORDS="amd64 ~amd64"
 
-# Dummy setting so we can use the same append form below.
-USE=""
+CHOST="x86_64-pc-linux-gnu"
 
-# Various global settings.
-USE="${USE} hardened multilib pic pie -introspection -cracklib"
-
-# Custom USE flag ebuilds can use to determine whether it's going into the sdk
-# or into a target board.
-USE="${USE} cros_host"
-
-# Disable all x11 USE flags for packages within chroot.
-USE="${USE} -gtk2 -gtk3 -qt4"
-
-# Enable extended attributes support in our sdk tools.
-USE="${USE} xattr"
-# But disable using them in the sdk itself for now.
-USE="${USE} -filecaps"
-
-# No need to track power in the sdk.
-USE="${USE} -power_management"
-
-# We don't boot things inside the sdk.
-USE="${USE} -openrc"
-
-# Disable vala inside the sdk
-USE="${USE} -vala"
-
-# We only have one rootfs.
-USE="${USE} -split-usr"
-
-# Various runtime features that control emerge behavior.
-# See "man 5 make.conf" for details.
-FEATURES="allow-missing-manifests buildpkg clean-logs -collision-protect
-            -ebuild-locks force-mirror -merge-sync -pid-sandbox
-            parallel-install -preserve-libs sandbox -strict userfetch
-            userpriv usersandbox -unknown-features-warn network-sandbox"
-
-# This is used by profiles/base/profile.bashrc to figure out that we
-# are targeting the cros-sdk (in all its various modes).  It should
-# be utilized nowhere else!
-CROS_SDK_HOST="cros-sdk-host"
-
-# Qemu targets we care about.
-QEMU_SOFTMMU_TARGETS="aarch64 arm i386 mips mips64 mips64el mipsel x86_64"
-QEMU_USER_TARGETS="aarch64 arm i386 mips mips64 mips64el mipsel x86_64"
-
-# Various compiler defaults.  Should be no arch-specific bits here.
+# Compiler defaults.
 CFLAGS="-O2 -pipe"
-LDFLAGS="-Wl,-O2 -Wl,--as-needed"
+CXXFLAGS="${CFLAGS}"
+FFLAGS="${CFLAGS}"
+FCFLAGS="${CFLAGS}"
 
-# We want to migrate away from this at some point.
-SYMLINK_LIB="yes"
+# Runtime features.
+FEATURES="candy fixlafiles news parallel-fetch preserve-libs
+            sandbox sfperms strict unknown-features-warn userpriv
+            usersandbox usersync"
 
-# Default target(s) for python-r1.eclass
-PYTHON_TARGETS="-python2_7 python3_6"
-PYTHON_SINGLE_TARGET="-python2_7 python3_6"
+ABI="amd64"
+DEFAULT_ABI="amd64"
+MULTILIB_ABIS="amd64 x86"
 
-# Use clang as the default compiler.
-CC="x86_64-pc-linux-gnu-clang"
-CXX="x86_64-pc-linux-gnu-clang++"
-LD="x86_64-pc-linux-gnu-ld.lld"
+PYTHON_TARGETS="python3_11 python3_12"
+PYTHON_SINGLE_TARGET="python3_11"
 
 
     "#;
@@ -342,7 +324,7 @@ LD="x86_64-pc-linux-gnu-ld.lld"
 
         assert_eq!(
             *capture.fragment(),
-            "# Copyright (c) 2015 The Chromium OS Authors. All rights reserved."
+            "# Copyright 1999-2024 Gentoo Authors"
         );
     }
 
@@ -462,75 +444,33 @@ LOL="$LOL $LOL $LOL $LOL $LOL"
         assert_eq!(res.len(), 13);
     }
 
-    const BAD_QUOTES_FULL_SAMPLE: &str = r#"# Copyright (c) 2015 The Chromium OS Authors. All rights reserved.
+    const BAD_QUOTES_FULL_SAMPLE: &str = r#"# Copyright 1999-2024 Gentoo Authors
 # Distributed under the terms of the GNU General Public License v2
 
-# Settings that are common to all host sdks.  Do not place any board specific
-# settings in here, or settings for cross-compiled targets.
-#
-# See "man 5 make.conf" and "man 5 portage" for the available options.
+ARCH="amd64"
+ACCEPT_KEYWORDS="amd64 ~amd64"
 
-# Dummy setting so we can use the same append form below.
-USE=""
+CHOST="x86_64-pc-linux-gnu"
 
-# Various global settings.
-USE="${USE} hardened multilib pic pie -introspection -cracklib"
-
-# Custom USE flag ebuilds can use to determine whether it's going into the sdk
-# or into a target board.
-USE="${USE} cros_host"
-
-# Disable all x11 USE flags for packages within chroot.
-USE="${USE} -gtk2 -gtk3 -qt4"
-
-# Enable extended attributes support in our sdk tools.
-USE="${USE} xattr"
-# But disable using them in the sdk itself for now.
-USE="${USE} -filecaps"
-
-# No need to track power in the sdk.
-USE="${USE} -power_management"
-
-# We don't boot things inside the sdk.
-USE="${USE} -openrc"
-
-# Disable vala inside the sdk
-USE="${USE} -vala"
-
-# We only have one rootfs.
-USE="${USE} -split-usr"
-
-# Various runtime features that control emerge behavior.
-# See "man 5 make.conf" for details.
-FEATURES="allow-missing-manifests buildpkg clean-logs -collision-protect
-            -ebuild-locks force-mirror -merge-sync -pid-sandbox
-            parallel-install -preserve-libs sandbox -strict userfetch
-            userpriv usersandbox -unknown-features-warn network-sandbox"
-
-# This is used by profiles/base/profile.bashrc to figure out that we
-# are targeting the cros-sdk (in all its various modes).  It should
-# be utilized nowhere else!
-CROS_SDK_HOST="cros-sdk-host"
-
-# Qemu targets we care about.
-QEMU_SOFTMMU_TARGETS="aarch64 arm i386 mips mips64 mips64el mipsel x86_64"
-QEMU_USER_TARGETS="aarch64 arm i386 mips mips64 mips64el mipsel x86_64"
-
-# Various compiler defaults.  Should be no arch-specific bits here.
+# Compiler defaults.
 CFLAGS="-O2 -pipe"
-LDFLAGS="-Wl,-O2 -Wl,--as-needed"
+CXXFLAGS="${CFLAGS}"
+FFLAGS="${CFLAGS}"
+FCFLAGS="${CFLAGS}"
 
-# We want to migrate away from this at some point.
-SYMLINK_LIB="yes"
+# Runtime features.
+FEATURES="candy fixlafiles news parallel-fetch preserve-libs
+            sandbox sfperms strict unknown-features-warn userpriv
+            usersandbox usersync"
 
-# Default target(s) for python-r1.eclass
-PYTHON_TARGETS="-python2_7 python3_6"
-PYTHON_SINGLE_TARGET="-python2_7 python3_6"
+ABI="amd64"
+DEFAULT_ABI="amd64"
+MULTILIB_ABIS="amd64 x86"
 
-# Use clang as the default compiler.
-CC=x86_64-pc-linux-gnu-clang
-CXX=x86_64-pc-linux-gnu-clang++
-LD=x86_64-pc-linux-gnu-ld.lld
+PYTHON_TARGETS="python3_11 python3_12"
+
+# Unquoted assignment (spec violation present in some overlays).
+CC=x86_64-pc-linux-gnu-gcc
 
 
     "#;
@@ -546,13 +486,24 @@ LD=x86_64-pc-linux-gnu-ld.lld
     fn test_bad_quotes_full_example_eval_unquoted() {
         let res = full_parse(null_span(BAD_QUOTES_FULL_SAMPLE));
         let res = res.unwrap();
-        assert_eq!(res["CC"].to_string(), "x86_64-pc-linux-gnu-clang");
+        assert_eq!(res["CC"].to_string(), "x86_64-pc-linux-gnu-gcc");
     }
 
     #[test]
     fn test_bad_quotes_full_example_eval_quoted() {
         let res = full_parse(null_span(BAD_QUOTES_FULL_SAMPLE));
         let res = res.unwrap();
-        assert_eq!(res["PYTHON_TARGETS"].to_string(), "-python2_7 python3_6");
+        assert_eq!(res["PYTHON_TARGETS"].to_string(), "python3_11 python3_12");
+    }
+
+    const ESCAPED_QUOTES_SAMPLE: &str = r#"
+BASE="foo"
+OPTS="${BASE} --exclude \"bar\" --include \"baz\""
+"#;
+
+    #[test]
+    fn test_escaped_quotes_parse() {
+        let res = full_parse(null_span(ESCAPED_QUOTES_SAMPLE)).unwrap();
+        assert_eq!(res["OPTS"].to_string(), r#"foo --exclude \"bar\" --include \"baz\""#);
     }
 }
