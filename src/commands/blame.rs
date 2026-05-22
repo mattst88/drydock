@@ -49,7 +49,13 @@ pub fn blame(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<()
         if let Some(subtoken_prefix) = target_values.next() {
             blame_incremental(&repo_table, &profile, target_var, subtoken_prefix)?;
         } else {
-            bail!("Please specify a token to track when blaming an incremental variable.");
+            bail!(
+                "{} is an incremental variable. Specify a token to trace: \
+                `blame -p {} {}:<token>`",
+                target_var,
+                target,
+                target_var
+            );
         }
     } else {
         let vals = repo_table.compute_variable(&profile, target_var)?;
