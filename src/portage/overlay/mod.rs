@@ -224,7 +224,7 @@ impl OverlayTable {
         &'a self,
         profile_key: &'a ProfileKey,
         variable: &str,
-    ) -> anyhow::Result<Vec<Span<'_>>> {
+    ) -> anyhow::Result<Vec<Span<'a>>> {
         if self.is_incremental_variable(profile_key, variable) {
             let incremental_values = self.compute_incremental_variable(profile_key, variable)?;
             let tokens = incremental_values.into_iter().map(|(s, _)| s).fold(
@@ -273,7 +273,7 @@ impl OverlayTable {
         &'a self,
         profile_key: &'a ProfileKey,
         variable: &str,
-    ) -> anyhow::Result<Vec<Span<'_>>> {
+    ) -> anyhow::Result<Vec<Span<'a>>> {
         let mut muncher = ValueMuncher::new();
         let (vals, k) = match self.get_variable_with_inheritance(profile_key, variable)? {
             Some(v) => v,
@@ -296,7 +296,7 @@ impl OverlayTable {
         &'a self,
         profile_key: &'a ProfileKey,
         variable: &str,
-    ) -> anyhow::Result<Vec<(TokenSet<'_>, &ProfileKey)>> {
+    ) -> anyhow::Result<Vec<(TokenSet<'a>, &'a ProfileKey)>> {
         let mut incremental_values = Vec::new();
         {
             let results = &mut incremental_values;
@@ -322,7 +322,7 @@ impl OverlayTable {
         profile_key: &'a ProfileKey,
         variable: &str,
         muncher: &mut ValueMuncher<'a>,
-    ) -> anyhow::Result<Vec<Span<'_>>> {
+    ) -> anyhow::Result<Vec<Span<'a>>> {
         let (found, source) = self
             .get_variable_from_parents(profile_key, variable)?
             .unwrap_or_else(|| (RVal::placeholder(), profile_key));
@@ -386,7 +386,7 @@ impl OverlayTable {
         &'a self,
         profile_key: &'a ProfileKey,
         variable: &str,
-    ) -> anyhow::Result<Option<(&RVal<'_>, &ProfileKey)>> {
+    ) -> anyhow::Result<Option<(&'a RVal<'a>, &'a ProfileKey)>> {
         match self.get_variable_no_inheritance(profile_key, variable)? {
             Some(v) => Ok(Some((v, profile_key))),
             None => Ok(self.get_variable_from_parents(profile_key, variable)?),

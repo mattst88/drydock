@@ -97,7 +97,7 @@ impl Profile {
     }
 
     /// Look up a variable definition in this profile's [rentals::ParsedFile].
-    pub fn get<S: AsRef<str>>(&self, key: S) -> Option<&RVal> {
+    pub fn get<S: AsRef<str>>(&self, key: S) -> Option<&RVal<'_>> {
         let conf: &rentals::ParsedFile = self.conf.as_ref().unwrap();
         conf.suffix().get(key.as_ref())
     }
