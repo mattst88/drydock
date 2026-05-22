@@ -11,9 +11,6 @@ mod portage;
 #[cfg(test)]
 mod test_util;
 
-#[macro_use]
-extern crate rental;
-
 use clap::{Arg, ArgAction, Command};
 
 fn main() -> anyhow::Result<()> {

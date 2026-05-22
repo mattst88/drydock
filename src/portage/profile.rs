@@ -13,9 +13,10 @@ use std::{
 
 use anyhow::bail;
 use nom_locate::LocatedSpan;
+use self_cell::self_cell;
 
 use crate::parse;
-use crate::portage::profile_parser::{full_parse, RVal, Value};
+use crate::portage::profile_parser::{full_parse, RVal, Value, ValueMap};
 
 use super::profile_parser::Span;
 
@@ -41,35 +42,34 @@ pub fn is_builtin_incremental_variable(variable: &str) -> bool {
     INCREMENTAL_VARIABLES.contains(&variable)
 }
 
-rental! {
-    mod rentals {
-        use super::*;
-
-        /// A self-referential struct containing the path to a file, the contents of that file,
-        /// and a [LocatedSpan] holding borrows of those two owned fields.
-        ///
-        /// This self-borrow is necessary in order to ensure that our [Span] type is [Copy] and
-        /// that our [Span] has the necessary trait implementations to work with nom's parsers.
-        #[rental(debug, covariant)]
-        pub struct FileMap {
-            path: PathBuf,
-            raw: String,
-            span: LocatedSpan<&'raw str, &'path Path>,
-        }
-
-        /// A self-referential struct containing a [FileMap] and a [HashMap] of the parsed
-        /// variable definitions from that file.
-        ///
-        /// This self-referential struct is a convenience wrapper around storing the contents
-        /// of a configuration file and a [HashMap] with values consisting of references into
-        /// that owned storage buffer.
-        #[rental(debug, covariant)]
-        pub struct ParsedFile {
-            file_map: Box<FileMap>,
-            map: HashMap<&'file_map str, RVal<'file_map>>,
-        }
-    }
+/// Owned storage for a profile configuration file.
+#[derive(Debug)]
+struct FileMapOwner {
+    path: PathBuf,
+    raw: String,
 }
+
+type FileSpan<'a> = LocatedSpan<&'a str, &'a Path>;
+
+self_cell!(
+    /// Owns the file path and raw content, with a dependent span borrowing from both.
+    struct FileMap {
+        owner: FileMapOwner,
+        #[covariant]
+        dependent: FileSpan,
+    }
+    impl { Debug }
+);
+
+self_cell!(
+    /// Owns a [FileMap] and a dependent variable map borrowing string data from it.
+    pub struct ParsedFile {
+        owner: Box<FileMap>,
+        #[covariant]
+        dependent: ValueMap,
+    }
+    impl { Debug }
+);
 
 /// A single instance of a Portage profile.
 #[derive(Debug)]
@@ -81,7 +81,7 @@ pub struct Profile {
     /// Full filesystem path to this profile.
     full_path: PathBuf,
     /// Parsed configuration file contents, if they have been evaluated yet.
-    pub conf: Option<rentals::ParsedFile>,
+    pub conf: Option<ParsedFile>,
 }
 
 impl Profile {
@@ -96,10 +96,9 @@ impl Profile {
         }
     }
 
-    /// Look up a variable definition in this profile's [rentals::ParsedFile].
+    /// Look up a variable definition in this profile's [ParsedFile].
     pub fn get<S: AsRef<str>>(&self, key: S) -> Option<&RVal<'_>> {
-        let conf: &rentals::ParsedFile = self.conf.as_ref().unwrap();
-        conf.suffix().get(key.as_ref())
+        self.conf.as_ref().unwrap().borrow_dependent().get(key.as_ref())
     }
 
     /// Parse the `parents` file of a profile, with a non-existent file signifying no parents.
@@ -114,39 +113,28 @@ impl Profile {
 
     /// Load a `make.conf` or `make.defaults` file in this profile if it exists and parse it.
     pub fn parse_and_ingest_conf(&mut self) -> anyhow::Result<()> {
-        match self.conf {
-            Some(_) => Ok(()),
-            None => {
-                let conf_path = self.full_path.join(MAKE_DEFAULTS);
-                let contents = if conf_path.is_file() {
-                    fs::read_to_string(&conf_path)?
-                } else {
-                    String::new()
-                };
-
-                match rentals::FileMap::try_new(
-                    conf_path,
-                    |_| Ok(contents),
-                    |s, p| {
-                        let span: anyhow::Result<_> = Ok(LocatedSpan::new_extra(s, p));
-                        span
-                    },
-                ) {
-                    Ok(file_map) => {
-                        match rentals::ParsedFile::try_new(Box::new(file_map), |filemap| {
-                            full_parse(*filemap.suffix())
-                        }) {
-                            Ok(rentref) => {
-                                self.conf = Some(rentref);
-                                Ok(())
-                            }
-                            Err(e) => bail!(e.0),
-                        }
-                    }
-                    Err(e) => bail!(e.0),
-                }
-            }
+        if self.conf.is_some() {
+            return Ok(());
         }
+
+        let conf_path = self.full_path.join(MAKE_DEFAULTS);
+        let raw = if conf_path.is_file() {
+            fs::read_to_string(&conf_path)?
+        } else {
+            String::new()
+        };
+
+        let file_map = FileMap::new(
+            FileMapOwner { path: conf_path, raw },
+            |owner| LocatedSpan::new_extra(owner.raw.as_str(), owner.path.as_path()),
+        );
+
+        let parsed_file = ParsedFile::try_new(Box::new(file_map), |fm| {
+            full_parse(*fm.borrow_dependent())
+        })?;
+
+        self.conf = Some(parsed_file);
+        Ok(())
     }
 }
 
