@@ -1,87 +1,95 @@
 # drydock
 
-`drydock` is a tool for querying Portage profiles and producing useful
-diagnostic output. `drydock` aims to demystify Portage configuration for users
-by providing **fast** queries of configuration values and detailed explanations
-of where those values came from.
+`drydock` is a tool for querying Portage profiles. It answers not just *what*
+a variable is set to, but *where* and *how* that value is defined across the
+profile inheritance hierarchy.
 
-`drydock` aims to not only answer *what* a value set to, but *where* and *how*
-that is value defined.
+`drydock` operates on profile `make.defaults` files only and does not interact
+with ebuilds or evaluate package dependencies.
 
-Currently, `drydock` does **not** interact with ebuilds at all and cannot
-evaluate package dependencies.
+## Setup
+
+`drydock` needs to know where your repositories live. Generate a config
+file with:
+
+```sh
+drydock config --default --src-path /var/db/repos
+```
+
+The default path is `/var/db/repos`. If your repos are elsewhere (e.g. a local
+checkout of the Gentoo tree), pass `--src-path` to any command instead of using
+a config file:
+
+```sh
+drydock eval -p gentoo:default/linux/amd64/23.0 CHOST --src-path ~/gentoo
+```
+
+Profile keys use the format `<repo-name>:<path/under/profiles>`. The repo name
+comes from `repo-name` in the repository's `metadata/layout.conf`, falling back to
+the directory name if that key is absent (as is the case for the main Gentoo
+repo).
 
 ## Commands
 
-Run `drydock --help` to see a list of all commands.
-
 ### `eval`
 
-Print the value of a variable as it would be seen by Portage. Example:
-```
-drydock eval USE --profile grunt:base
+Print the fully-evaluated value of a variable for a given profile:
+
+```sh
+drydock eval -p gentoo:default/linux/alpha/23.0 CHOST
+# alpha-unknown-linux-gnu
+
+drydock eval -p gentoo:default/linux/amd64/23.0 USE
 ```
 
 ### `blame`
 
-Show the value of a variable annotated with details of where the contents of
-that variable are set throughout the profile hierarchy. Running the following
-example:
+Show where a variable's value comes from. For non-incremental variables, shows
+the value annotated with the source file and line:
+
+```sh
+drydock blame -p gentoo:default/linux/amd64/23.0 CHOST
 ```
-drydock blame BOARD_COMPILER_FLAGS --profile octopus:base
+
+For incremental variables (USE, IUSE, etc.), a token must be specified to trace
+through the inheritance hierarchy:
+
+```sh
+drydock blame -p gentoo:default/linux/amd64/23.0 USE:multilib
 ```
-will output something similar to:
-```
--march=goldmont
-^______________^ chipset-glk/profiles/base/make.defaults:L14
-```
-Indicating the value of the `BOARD_COMPILER_FLAGS` variable and where that value
-was set. In this case, line 14 of the `make.defaults` file in the `base` profile
-of the `chipset-glk` overlay. (The exact value may have changed since this
-README was written.)
+
+Output identifies which `make.defaults` file in the profile hierarchy is
+responsible for setting or unsetting each token.
+
 ### `parents`
 
-Print a graphviz representation or text tree of a profile's inheritance tree.
-Example:
+Print the profile inheritance tree:
+
+```sh
+drydock parents gentoo:default/linux/amd64/23.0
 ```
-drydock parents --graph samus:base
-```
 
-## Options and Settings
-
-Get started with `drydock --help` to see a list of commands. If you're a Chrome
-OS developer you probably want to start with `drydock config --default` to
-generate a default configuration file.
-
-By default `drydock` tries to read from a configuration file under
-`$XDG_CONFIG_HOME` or `~/.config/drydock`, but the config file path can be
-specified with the `--config-file` argument. All `drydock` settings can be
-specified as command-line arguments in addition to the configuration file, check
-`drydock --help` or `drydock <subcmd> --help` for more details.
+Pass `--graph` for Graphviz DOT output suitable for rendering with `dot -Tsvg`.
 
 ## Building & Installing
 
-`drydock` requires a stable Rust toolchain, best obtained via https://rustup.rs/
+Requires a stable Rust toolchain — install via <https://rustup.rs/>.
 
-### Installing
+### Install
 
-You can install `drydock` via `cargo` by running
 ```sh
-cargo install --path ${DRYDOCK_CHECKOUT_DIR?}
+cargo install --path .
 ```
 
-### Building
+### Build
 
-`drydock` can be built by running
 ```sh
 cargo build --release
+# binary at target/release/drydock
 ```
-while in the project directory. The output binary can then be found at
-`target/release/drydock` and can be moved to the location of your choosing.
 
-### Running without installing
+### Run without installing
 
-`drydock` can also be compiled and run directly from the project directory via
 ```sh
-cargo run --release -- ${YOUR_ARGS?}
+cargo run --release -- eval -p gentoo:default/linux/amd64/23.0 CHOST
 ```
