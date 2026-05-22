@@ -16,7 +16,7 @@ use nom::{
     combinator::{map, recognize},
     multi::many0,
     sequence::{delimited, preceded, separated_pair},
-    IResult,
+    IResult, Parser,
 };
 
 use nom_locate::LocatedSpan;
@@ -116,7 +116,7 @@ pub fn full_parse(mut input: Span<'_>) -> anyhow::Result<ValueMap<'_>> {
         } else {
             // Consume any stray leading whitespace, or return an error if we cannot parse further.
             let (new, _) =
-                multispace1::<Span, nom::error::VerboseError<Span>>(input).map_err(|_| {
+                multispace1::<Span, nom::error::Error<Span>>(input).map_err(|_| {
                     anyhow!(
                         "Syntax error at line {line_number}:\n\n\
                         {full_line}\n\
@@ -138,7 +138,7 @@ pub fn full_parse(mut input: Span<'_>) -> anyhow::Result<ValueMap<'_>> {
 
 /// Parser to recognize a commented line in a `make.conf` file.
 pub fn comment_line(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
-    recognize(preceded(complete::char('#'), complete::not_line_ending))(input)
+    recognize(preceded(complete::char('#'), complete::not_line_ending)).parse(input)
 }
 
 /// Parser to recognize a full assignment expression, e.g. `FOO="$BAR $BAZ"`.
@@ -153,7 +153,7 @@ fn assignment<'a>(
         variable,
         tag("="),
         alt((quoted_rval_parser, single_quoted_rval, unquoted_rval_parser)),
-    )(input)
+    ).parse(input)
 }
 
 /// Parser to recognize a properly quoted [RVal].
@@ -184,7 +184,7 @@ fn quoted_rval<'a>(
             tag("\""),
         ),
         |vals| RVal { vals },
-    )(input)
+    ).parse(input)
 }
 
 /// Parser to recognize single-quoted rvalues.
@@ -200,7 +200,7 @@ fn single_quoted_rval(input: Span<'_>) -> IResult<Span<'_>, RVal<'_>> {
                 RVal::new(vec![Value::Literal(s)])
             }
         },
-    )(input)
+    ).parse(input)
 }
 
 /// Parser to recognize unquoted rvalues, as much as possible.
@@ -235,12 +235,12 @@ fn unquoted_rval<'a>(
             )),
         ),
         RVal::new,
-    )(input)
+    ).parse(input)
 }
 
 /// Parser to recognize string literals.
 fn literal(input: Span<'_>) -> IResult<Span<'_>, Value<'_>> {
-    map(is_not("$\"\\"), Value::Literal)(input)
+    map(is_not("$\"\\"), Value::Literal).parse(input)
 }
 
 /// Parser to recognize a backslash escape sequence (e.g. `\"` or `\\`).
@@ -250,7 +250,7 @@ fn escaped_char(input: Span<'_>) -> IResult<Span<'_>, Value<'_>> {
     map(
         recognize(preceded(tag("\\"), complete::anychar)),
         Value::Literal,
-    )(input)
+    ).parse(input)
 }
 
 /// Parser to recognize variable names.
@@ -260,7 +260,7 @@ fn variable(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
     recognize(preceded(
         take_while1(leading_symbol),
         take_while(trailing_symbol),
-    ))(input)
+    )).parse(input)
 }
 
 /// Parser to recognize variable expansions in rvalues.
@@ -274,14 +274,13 @@ fn expansion(input: Span<'_>) -> IResult<Span<'_>, Value<'_>> {
             name: s,
             value: None,
         },
-    )(input)
+    ).parse(input)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use lazy_static::lazy_static;
-    use nom::Slice;
     fn null_span(text: &str) -> Span<'_> {
         lazy_static! {
             static ref NULL_PATH: &'static Path = Path::new("");
@@ -331,26 +330,18 @@ PYTHON_SINGLE_TARGET="python3_11"
     const ASSIGN: &str = r#"USE="${USE} hardened multilib pic pie -introspection -cracklib""#;
     #[test]
     fn test_single_assignment_parse() {
-        let assign_span = null_span(ASSIGN);
-        let res = assignment(null_span(ASSIGN), &HashMap::new());
-        let (out, asgn) = res.unwrap();
-
-        assert_eq!(
-            (
-                assign_span.slice(0..3),
-                RVal {
-                    vals: vec![
-                        Value::Expansion {
-                            name: assign_span.slice(7..10),
-                            value: None
-                        },
-                        Value::Literal(assign_span.slice(11..62))
-                    ]
-                }
-            ),
-            asgn
-        );
-        assert_eq!(out, assign_span.slice(63..));
+        let (out, (lval, rval)) = assignment(null_span(ASSIGN), &HashMap::new()).unwrap();
+        assert_eq!(*lval.fragment(), "USE");
+        assert_eq!(rval.vals.len(), 2);
+        let Value::Expansion { name, value: None } = &rval.vals[0] else {
+            panic!("expected expansion")
+        };
+        assert_eq!(*name.fragment(), "USE");
+        let Value::Literal(lit) = &rval.vals[1] else {
+            panic!("expected literal")
+        };
+        assert_eq!(*lit.fragment(), " hardened multilib pic pie -introspection -cracklib");
+        assert_eq!(*out.fragment(), "");
     }
 
     const MULTI_ASSIGN: &str = r#"
@@ -360,23 +351,22 @@ USE="${USE} bar"
 
     #[test]
     fn test_multi_assignment_parse() {
-        let multi_assign_span = null_span(MULTI_ASSIGN);
-        let res = full_parse(multi_assign_span);
-        let res = res.unwrap();
-        let mut expected = HashMap::new();
-        expected.insert(
-            "USE",
-            RVal {
-                vals: vec![
-                    Value::Expansion {
-                        name: multi_assign_span.slice(18usize..21usize),
-                        value: Some(vec![Value::Literal(multi_assign_span.slice(6..9))]),
-                    },
-                    Value::Literal(multi_assign_span.slice(22..26)),
-                ],
-            },
-        );
-        assert_eq!(res, expected);
+        let res = full_parse(null_span(MULTI_ASSIGN)).unwrap();
+        let rval = &res["USE"];
+        assert_eq!(rval.vals.len(), 2);
+        let Value::Expansion { name, value: Some(inner) } = &rval.vals[0] else {
+            panic!("expected expansion with inlined value")
+        };
+        assert_eq!(*name.fragment(), "USE");
+        assert_eq!(inner.len(), 1);
+        let Value::Literal(prev) = &inner[0] else {
+            panic!("expected literal in inlined value")
+        };
+        assert_eq!(*prev.fragment(), "foo");
+        let Value::Literal(appended) = &rval.vals[1] else {
+            panic!("expected literal")
+        };
+        assert_eq!(*appended.fragment(), " bar");
     }
 
     #[test]

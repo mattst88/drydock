@@ -11,7 +11,7 @@ use std::collections::BTreeMap;
 
 use nom::{
     bytes::complete::tag, bytes::complete::take_while1, character::complete::multispace0,
-    sequence::preceded, IResult,
+    sequence::preceded, IResult, Parser,
 };
 
 use super::profile_parser::Span;
@@ -45,9 +45,9 @@ impl<'a> TokenSet<'a> {
     /// Parser to split a slice of [Span]s, which individually might contain multiple tokens, into
     /// a [TokenSet].
     pub fn from_raw_spans(raw_spans: &[Span<'a>]) -> anyhow::Result<Self> {
-        let ws_enabled_token = preceded(multispace0, enabled_token);
-        let ws_disabled_token = preceded(multispace0, disabled_token);
-        let ws_reset_glob = preceded(multispace0, reset_glob);
+        let mut ws_enabled_token = preceded(multispace0, enabled_token);
+        let mut ws_disabled_token = preceded(multispace0, disabled_token);
+        let mut ws_reset_glob = preceded(multispace0, reset_glob);
 
         let mut glob: Option<Span> = None;
         let mut token_states: BTreeMap<&str, TokenState> = BTreeMap::new();
@@ -66,18 +66,18 @@ impl<'a> TokenSet<'a> {
             loop 4: breaks
             */
             loop {
-                if let Ok((sp, val)) = ws_reset_glob(span) {
+                if let Ok((sp, val)) = ws_reset_glob.parse(span) {
                     // Matching a literal "-*" (a 'reset glob') is equivalent to disabling every
                     // token. We model this by clearing all values in the map so far, storing the
                     // parsed span of the reset glob.
                     glob = Some(val);
                     span = sp;
                     token_states.clear();
-                } else if let Ok((sp, val)) = ws_disabled_token(span) {
+                } else if let Ok((sp, val)) = ws_disabled_token.parse(span) {
                     // Match a token to be disabled (e.g. "-foo").
                     span = sp;
                     token_states.insert(val.fragment(), TokenState::Disabled(val));
-                } else if let Ok((sp, val)) = ws_enabled_token(span) {
+                } else if let Ok((sp, val)) = ws_enabled_token.parse(span) {
                     // Match a token to be enabled (e.g. "foo").
                     span = sp;
                     token_states.insert(val.fragment(), TokenState::Enabled(val));
@@ -129,7 +129,7 @@ impl<'a> From<TokenSet<'a>> for Vec<Span<'a>> {
 /// Parser to recognize a single token. Tokens are just assumed to be not-whitespace.
 fn token(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
     let not_ws = |c: char| !c.is_ascii_whitespace();
-    take_while1(not_ws)(input)
+    take_while1(not_ws).parse(input)
 }
 
 /// Parser to recognize an enabled token.
@@ -145,12 +145,12 @@ fn enabled_token(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
 /// Incremental variables are sets of tokens, so a token being 'disabled' means that it is to be
 /// removed from that set.
 fn disabled_token(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
-    preceded(tag("-"), token)(input)
+    preceded(tag("-"), token).parse(input)
 }
 
 /// Parser to recognize the special glob which disables all tokens in the current context.
 fn reset_glob(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
-    tag("-*")(input)
+    tag("-*").parse(input)
 }
 
 #[cfg(test)]

@@ -13,6 +13,7 @@ use nom::{
     combinator::{map, value},
     multi::many0,
     sequence::{preceded, separated_pair},
+    Parser,
 };
 
 use crate::portage::profile::ProfileReference;
@@ -55,20 +56,14 @@ pub fn parse_parent_file(body: Span) -> anyhow::Result<Vec<ProfileReference>> {
         comment_parser,
         absolute_reference,
         relative_reference,
-    )))(body)
+    ))).parse(body)
     .map(|(_, v): (Span, Vec<Option<_>>)| v.into_iter().flatten().collect())
     .map_err(|e| match e {
-        nom::Err::Error((i, e)) => {
-            anyhow!(nom::error::convert_error(
-                *body,
-                nom::error::make_error(*i, e)
-            ))
+        nom::Err::Error(e) => {
+            anyhow!("Parse error at line {}: {:?}", e.input.location_line(), e.code)
         }
-        nom::Err::Failure((i, e)) => {
-            anyhow!(nom::error::convert_error(
-                *body,
-                nom::error::make_error(*i, e)
-            ))
+        nom::Err::Failure(e) => {
+            anyhow!("Parse failure at line {}: {:?}", e.input.location_line(), e.code)
         }
         nom::Err::Incomplete(_) => {
             anyhow!("Ambiguous parser failure")
