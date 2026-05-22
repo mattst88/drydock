@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-//! Module containing functions for constructing and traversing Portage overlays and their profiles.
+//! Module containing functions for constructing and traversing Portage repositories and their profiles.
 
 mod builder;
 mod traversal;
@@ -13,7 +13,7 @@ use std::convert::TryFrom;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use self::builder::OverlayTableBuilder;
+use self::builder::RepositoryTableBuilder;
 
 use super::{
     profile::{is_builtin_incremental_variable, ProfileReference},
@@ -28,17 +28,17 @@ use crate::{config::DrydockConfig, parse};
 use anyhow::{anyhow, bail, Context};
 use nom_locate::LocatedSpan;
 
-/// A Portage overlay and all contained profiles.
+/// A Portage repository and all contained profiles.
 ///
 /// Full specification: https://dev.gentoo.org/~ulm/pms/head/pms.html#x1-280004
 #[derive(Debug, Hash, Eq, PartialEq)]
-pub struct Overlay {
+pub struct Repository {
     pub name: String,
     pub path: PathBuf,
     pub profiles: BTreeMap<String, Profile>,
 }
 
-impl Overlay {
+impl Repository {
     pub fn new(name: String, path: PathBuf) -> Self {
         Self {
             name,
@@ -47,12 +47,12 @@ impl Overlay {
         }
     }
 
-    /// Return the path to the `profiles` directory of this overlay.
+    /// Return the path to the `profiles` directory of this repository.
     fn profiles_root(&self) -> PathBuf {
         self.path.join("profiles")
     }
 
-    /// Return a [ProfileKey] for a given profile name in this overlay, if it exists.
+    /// Return a [ProfileKey] for a given profile name in this repository, if it exists.
     #[allow(dead_code)]
     pub fn key_for(&self, profile_name: &str) -> Option<ProfileKey> {
         self.profiles
@@ -60,7 +60,7 @@ impl Overlay {
             .map(|p| ProfileKey::new(&self.name, &p.name))
     }
 
-    /// Walk the `profiles` directory of this overlay and evaluate every subdir as a profile,
+    /// Walk the `profiles` directory of this repository and evaluate every subdir as a profile,
     /// parsing and resolving the `parents` file to build the inheritance relationships between
     /// the profiles.
     fn parse_profiles(&mut self) -> anyhow::Result<()> {
@@ -83,7 +83,7 @@ impl Overlay {
                     .strip_prefix(&profile_dir)
                     .with_context(|| {
                         format!(
-                            "In overlay {}, exploring path {:?}",
+                            "In repository {}, exploring path {:?}",
                             &self.name,
                             entry.path()
                         )
@@ -95,9 +95,9 @@ impl Overlay {
 
             for parent in Profile::parse_parents(entry.path()).unwrap_or_default() {
                 match parent {
-                    ProfileReference::Absolute { overlay, path } => profile
+                    ProfileReference::Absolute { repo_name, path } => profile
                         .parents
-                        .push(ProfileKey::new(overlay, path.to_string_lossy())),
+                        .push(ProfileKey::new(repo_name, path.to_string_lossy())),
 
                     ProfileReference::Relative { path } => {
                         let parent_path =
@@ -145,14 +145,14 @@ impl Overlay {
     }
 }
 
-impl TryFrom<&Path> for Overlay {
+impl TryFrom<&Path> for Repository {
     type Error = anyhow::Error;
 
     fn try_from(value: &Path) -> Result<Self, Self::Error> {
         let metadata_path = value.join("metadata/layout.conf");
         let layout_body = fs::read_to_string(&metadata_path).with_context(|| {
             format!(
-                "Failed to read overlay layout file at {}",
+                "Failed to read repository layout file at {}",
                 metadata_path.display()
             )
         })?;
@@ -172,38 +172,36 @@ impl TryFrom<&Path> for Overlay {
                 })?
                 .to_string(),
         };
-        let overlay = Overlay::new(repo_name, value.into());
-        Ok(overlay)
+        let repo = Repository::new(repo_name, value.into());
+        Ok(repo)
     }
 }
 
-/// Try to construct a full [OverlayTable] using the specified [Config] options.
-///
-/// Explores directories in parallel using a thread worker pool.
-pub fn build_overlay_map(config: &DrydockConfig) -> anyhow::Result<OverlayTable> {
+/// Construct a [RepositoryTable] by scanning `config.src_path` in parallel.
+pub fn build_repository_table(config: &DrydockConfig) -> anyhow::Result<RepositoryTable> {
     let mut walker = ignore::WalkBuilder::new(&config.src_path);
     walker.filter_entry(|dir| dir.path().is_dir());
     walker.max_depth(Some(2));
 
-    let mut table = OverlayTableBuilder::new();
+    let mut table = RepositoryTableBuilder::new();
 
     let walker = walker.build_parallel();
 
     walker.visit(&mut table);
 
-    OverlayTable::try_from(table)
+    RepositoryTable::try_from(table)
 }
 
-/// A full mapping of all found [Overlay]s and their associated profiles.
+/// A full mapping of all found [Repository]s and their associated profiles.
 ///
 /// Supports various profile traversal operations to evaluate variables and handle
 /// profile inheritance.
 #[derive(Debug)]
-pub struct OverlayTable {
-    pub map: HashMap<String, Overlay>,
+pub struct RepositoryTable {
+    pub map: HashMap<String, Repository>,
 }
 
-impl OverlayTable {
+impl RepositoryTable {
     pub fn new() -> Self {
         Self {
             map: HashMap::new(),
@@ -213,7 +211,7 @@ impl OverlayTable {
     /// Return a reference to the [Profile] specified by a [ProfileKey], if it exists.
     pub fn get(&self, key: &ProfileKey) -> Option<&Profile> {
         self.map
-            .get(key.overlay())
+            .get(key.repo_name())
             .map(|o| o.profiles.get(key.profile()))
             .flatten()
     }
@@ -412,7 +410,7 @@ impl OverlayTable {
         self.write_profile_tree_at_depth(&mut writer, profile_key, 0)
     }
 
-    /// Interior implementation of [OverlayTable::print_profile_tree()] that recurses
+    /// Interior implementation of [RepositoryTable::print_profile_tree()] that recurses
     /// through the inheritance tree of the provided [ProfileKey] and writes the entries
     /// found indented at the level of `depth`.
     fn write_profile_tree_at_depth(
@@ -428,7 +426,7 @@ impl OverlayTable {
             writeln!(
                 writer,
                 "{}:{}",
-                profile_key.overlay(),
+                profile_key.repo_name(),
                 profile_key.profile()
             )?;
             for parent_key in profile.parents.iter() {
@@ -439,7 +437,7 @@ impl OverlayTable {
             writeln!(
                 writer,
                 "{}:{} <broken, no such profile>",
-                profile_key.overlay(),
+                profile_key.repo_name(),
                 profile_key.profile()
             )?;
         }
@@ -448,21 +446,21 @@ impl OverlayTable {
     }
 }
 
-impl Default for OverlayTable {
+impl Default for RepositoryTable {
     fn default() -> Self {
         Self::new()
     }
 }
 
 /// Helper function to construct an anyhow::Result with an informative error message when
-/// the lookup of a ProfileKey fails. We return the most similar overlay name as a suggestion
+/// the lookup of a ProfileKey fails. We return the most similar repository name as a suggestion
 /// where 'similarity' is measured by the normalized Damerau-Levenshtein distance.
 fn construct_missing_profile_error(
-    table: &OverlayTable,
+    table: &RepositoryTable,
     profile_key: &ProfileKey,
 ) -> anyhow::Error {
-    match table.map.get(profile_key.overlay()) {
-        // An overlay with the requested name exists, therefore the issue is that
+    match table.map.get(profile_key.repo_name()) {
+        // A repository with the requested name exists, therefore the issue is that
         // a matching profile wasn't found. So we look for the profile with the most
         // similar name.
         Some(o) => {
@@ -475,44 +473,44 @@ fn construct_missing_profile_error(
                 Some(p) => p,
                 None => {
                     return anyhow!(
-                        "The profile {} was requested, but the overlay {} contains no profiles. \
-                        Full path of the overlay: {}",
+                        "The profile {} was requested, but the repository {} contains no profiles. \
+                        Full path: {}",
                         profile_key.full_name(),
-                        profile_key.overlay(),
+                        profile_key.repo_name(),
                         o.path.display()
                     )
                 }
             };
 
             anyhow!(
-                "The overlay {} was found, but the profile \"{}\" does not exist. Did you mean: {}",
-                profile_key.overlay(),
+                "The repository {} was found, but the profile \"{}\" does not exist. Did you mean: {}",
+                profile_key.repo_name(),
                 profile_key.profile(),
                 nearest_profile
             )
         }
 
-        // An overlay with the requested name doesn't exist.
-        // Find the most similar overlay name and suggest it as an alternative.
+        // No repository with the requested name exists.
+        // Find the most similar repository name and suggest it as an alternative.
         None => {
-            let nearest_overlay = match table.map.keys().max_by_key(|s| {
+            let nearest_repo = match table.map.keys().max_by_key(|s| {
                 float_ord::FloatOrd(strsim::normalized_damerau_levenshtein(
-                    profile_key.overlay(),
+                    profile_key.repo_name(),
                     s,
                 ))
             }) {
                 Some(p) => p,
                 None => {
                     return anyhow!(
-                        "No overlays were found! Ensure your config points at a valid checkout."
+                        "No repositories found. Ensure your config points at a valid path."
                     )
                 }
             };
 
             anyhow!(
-                "The overlay \"{}\" was not found. Did you mean: {}:{}",
-                profile_key.overlay(),
-                nearest_overlay,
+                "Repository \"{}\" not found. Did you mean: {}:{}",
+                profile_key.repo_name(),
+                nearest_repo,
                 profile_key.profile()
             )
         }
@@ -523,7 +521,7 @@ fn construct_missing_profile_error(
 mod tests {
     use super::*;
 
-    use crate::{config::DrydockConfig, portage::overlay::build_overlay_map};
+    use crate::{config::DrydockConfig, portage::repository::build_repository_table};
 
     use crate::test_util::test_data_dir;
 
@@ -537,10 +535,10 @@ mod tests {
         };
         let key = ProfileKey::new("spam", "special_feature/extra_special_feature");
 
-        let overlay_table = build_overlay_map(&config)?;
+        let repo_table = build_repository_table(&config)?;
 
         let mut buf = Vec::new();
-        overlay_table.print_profile_tree(&mut buf, &key)?;
+        repo_table.print_profile_tree(&mut buf, &key)?;
 
         let output = String::from_utf8(buf)?;
 
@@ -558,12 +556,12 @@ mod tests {
     }
 
     #[test]
-    fn test_assert_overlay_constructor_falls_back_to_dir_name_on_missing_repo_name() {
-        let test_overlay_path =
-            test_data_dir(&["malformed-test-tree", "test-overlay-malformed-overlay"]);
+    fn test_assert_repository_constructor_falls_back_to_dir_name_on_missing_repo_name() {
+        let test_repo_path =
+            test_data_dir(&["malformed-test-tree", "malformed-repo"]);
 
-        let overlay = Overlay::try_from(test_overlay_path.as_path()).unwrap();
-        assert_eq!(overlay.name, "test-overlay-malformed-overlay");
+        let repo = Repository::try_from(test_repo_path.as_path()).unwrap();
+        assert_eq!(repo.name, "malformed-repo");
     }
 
     #[test]
@@ -576,7 +574,7 @@ mod tests {
         };
         let key = ProfileKey::new("spam", "special_feature/extra_special_feature");
 
-        let overlay_table = build_overlay_map(&config)?;
+        let repo_table = build_repository_table(&config)?;
 
         let mut visited = Vec::new();
 
@@ -589,7 +587,7 @@ mod tests {
             visited.push(name);
             Ok(())
         };
-        overlay_table.visit_arborescence_postorder(&key, &mut visitor)?;
+        repo_table.visit_arborescence_postorder(&key, &mut visitor)?;
 
         assert_eq!(
             visited,

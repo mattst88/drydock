@@ -4,7 +4,7 @@
 
 //! A module containing trait impls for compatibility with petgraph.
 //!
-//! For the purpose of these traits An [OverlayTable] is treated as a directed graph
+//! For the purpose of these traits An [RepositoryTable] is treated as a directed graph
 //! where the nodes are [Profile]s and a directed edge from A to B exists if B is
 //! listed in `parent` file of A.
 
@@ -15,19 +15,19 @@ use petgraph::{data::DataMap, visit::GraphBase};
 
 use crate::portage::{Profile, ProfileKey};
 
-use super::OverlayTable;
+use super::RepositoryTable;
 
-impl<'a> GraphBase for &'a OverlayTable {
+impl<'a> GraphBase for &'a RepositoryTable {
     type EdgeId = (&'a ProfileKey, &'a ProfileKey);
     type NodeId = &'a ProfileKey;
 }
 
-impl<'a> Data for &'a OverlayTable {
+impl<'a> Data for &'a RepositoryTable {
     type NodeWeight = Profile;
     type EdgeWeight = ();
 }
 
-impl<'a> DataMap for &'a OverlayTable {
+impl<'a> DataMap for &'a RepositoryTable {
     fn node_weight(&self, id: Self::NodeId) -> Option<&Self::NodeWeight> {
         self.get(id)
     }
@@ -43,7 +43,7 @@ impl<'a> DataMap for &'a OverlayTable {
     }
 }
 
-impl<'a> Visitable for &'a OverlayTable {
+impl<'a> Visitable for &'a RepositoryTable {
     type Map = HashSet<Self::NodeId>;
 
     fn visit_map(&self) -> Self::Map {
@@ -55,7 +55,7 @@ impl<'a> Visitable for &'a OverlayTable {
     }
 }
 
-impl<'a: 'b, 'b> IntoNeighbors for &'b &'a OverlayTable {
+impl<'a: 'b, 'b> IntoNeighbors for &'b &'a RepositoryTable {
     type Neighbors = Iter<'a, ProfileKey>;
 
     fn neighbors(self, a: Self::NodeId) -> Self::Neighbors {
@@ -67,27 +67,27 @@ impl<'a: 'b, 'b> IntoNeighbors for &'b &'a OverlayTable {
 
 pub(super) struct ProfileIter<'a> {
     visitor:
-        DfsPostOrder<<&'a OverlayTable as GraphBase>::NodeId, <&'a OverlayTable as Visitable>::Map>,
-    overlay_table: &'a OverlayTable,
+        DfsPostOrder<<&'a RepositoryTable as GraphBase>::NodeId, <&'a RepositoryTable as Visitable>::Map>,
+    repo_table: &'a RepositoryTable,
 }
 
 impl<'a> ProfileIter<'a> {
     #[allow(dead_code)]
     pub(super) fn new(
-        overlay_table: &'a OverlayTable,
-        start: <&'a OverlayTable as GraphBase>::NodeId,
+        repo_table: &'a RepositoryTable,
+        start: <&'a RepositoryTable as GraphBase>::NodeId,
     ) -> Self {
         Self {
-            overlay_table,
-            visitor: DfsPostOrder::new(&overlay_table, start),
+            repo_table,
+            visitor: DfsPostOrder::new(&repo_table, start),
         }
     }
 }
 
 impl<'a> Iterator for ProfileIter<'a> {
-    type Item = <&'a OverlayTable as GraphBase>::NodeId;
+    type Item = <&'a RepositoryTable as GraphBase>::NodeId;
 
     fn next(&mut self) -> Option<Self::Item> {
-        self.visitor.next(&self.overlay_table)
+        self.visitor.next(&self.repo_table)
     }
 }

@@ -24,10 +24,10 @@ lazy_static! {
 }
 
 /// Parser for a Portage profile 'parents' file. These files are a newline-delimited list
-/// of either relative profile paths (e.g. "../..") within the same overlay or absolute
-/// profile paths with a leading overlay name, e.g. "some-overlay:path/to/a/profile"
-/// Note that the leading overlay name is *not* a path: it is the `repo-name` variable
-/// declared in an overlay's layout.conf
+/// of either relative profile paths (e.g. "../..") within the same repository or absolute
+/// profile paths with a leading repository name, e.g. "gentoo:default/linux/amd64/23.0"
+/// Note that the leading name is *not* a path: it is the `repo-name` variable
+/// declared in the repository's layout.conf
 pub fn parse_parent_file(body: Span) -> anyhow::Result<Vec<ProfileReference>> {
     let comment_line = preceded(multispace0, parse::comment_line);
     let comment_parser = value(None, comment_line);
@@ -39,7 +39,7 @@ pub fn parse_parent_file(body: Span) -> anyhow::Result<Vec<ProfileReference>> {
         ), // absolute path
         |(repo, path): (Span, Span)| {
             Some(ProfileReference::Absolute {
-                overlay: String::from(*repo),
+                repo_name: String::from(*repo),
                 path: PathBuf::from(*path),
             })
         },
@@ -76,7 +76,7 @@ pub fn parse_parent_file(body: Span) -> anyhow::Result<Vec<ProfileReference>> {
     })
 }
 
-/// Parse layout.conf and return only the overlay's name for now.
+/// Parse layout.conf and return the repository name (`repo-name` field).
 /// repo-name = gentoo
 pub fn parse_layout_conf(body: Span<'_>) -> anyhow::Result<&str> {
     LAYOUT_REGEX
@@ -109,7 +109,7 @@ gentoo:default/linux/amd64/23.0
 cache-format = md5-dict
 masters = gentoo
 profile-formats = portage-2
-repo-name = my-overlay
+repo-name = my-repo
 thin-manifests = true
 use-manifests = strict
 ";
@@ -124,7 +124,7 @@ use-manifests = strict
                     path: "../../base".into()
                 },
                 ProfileReference::Absolute {
-                    overlay: "gentoo".into(),
+                    repo_name: "gentoo".into(),
                     path: "default/linux/amd64/23.0".into()
                 },
             ]
@@ -138,7 +138,7 @@ use-manifests = strict
         assert_eq!(
             parse_parent_file(null_span(NO_LINEFEED)).unwrap(),
             vec![ProfileReference::Absolute {
-                overlay: "gentoo".into(),
+                repo_name: "gentoo".into(),
                 path: "default/linux/amd64/23.0".into()
             },]
         )
@@ -156,7 +156,7 @@ use-manifests = strict
     fn test_layout_regex() {
         assert_eq!(
             parse_layout_conf(null_span(LAYOUT_SAMPLE)).unwrap(),
-            "my-overlay"
+            "my-repo"
         )
     }
 }

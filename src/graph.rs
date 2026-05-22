@@ -8,15 +8,15 @@ use anyhow::bail;
 use petgraph::dot;
 use petgraph::graphmap::DiGraphMap;
 
-use crate::portage::overlay::OverlayTable;
+use crate::portage::repository::RepositoryTable;
 use crate::portage::profile::ProfileKey;
 
 /// Helper function to print the graph ancestors of a profile in graphviz's DOT format.
-/// Currently operates by traversing the [OverlayTable] and adding the profile & parents
+/// Currently operates by traversing the [RepositoryTable] and adding the profile & parents
 /// to a [DiGraphMap] and using petgraph's builtin DOT formatter.
 pub fn dump_graphviz(
     mut dest: impl io::Write,
-    table: &OverlayTable,
+    table: &RepositoryTable,
     roots: &[ProfileKey],
 ) -> anyhow::Result<()> {
     let mut graphmap: DiGraphMap<&str, ()> = DiGraphMap::new();
@@ -35,7 +35,7 @@ pub fn dump_graphviz(
             visited.insert(key.clone());
         }
 
-        if let Some(o) = table.map.get(key.overlay()) {
+        if let Some(o) = table.map.get(key.repo_name()) {
             if let Some(p) = o.profiles.get(key.profile()) {
                 for parent in p.parents.iter() {
                     graphmap.add_edge(key.full_name(), parent.full_name(), ());
@@ -48,7 +48,7 @@ pub fn dump_graphviz(
             let mut keys: Vec<String> = table.map.keys().cloned().collect();
             keys.sort();
             bail!(
-                "Missing an overlay!\n Requested: {:?}\nVisited: {:?}\nKeys: {:?}",
+                "Missing a repository!\n Requested: {:?}\nVisited: {:?}\nKnown: {:?}",
                 key,
                 visited,
                 keys
@@ -69,7 +69,7 @@ pub fn dump_graphviz(
 mod tests {
     use super::*;
 
-    use crate::{config::DrydockConfig, portage::overlay::build_overlay_map};
+    use crate::{config::DrydockConfig, portage::repository::build_repository_table};
 
     use crate::test_util::test_data_dir;
 
@@ -83,10 +83,10 @@ mod tests {
         };
         let roots = &[ProfileKey::new("ham", "base")];
 
-        let overlay_table = build_overlay_map(&config)?;
+        let repo_table = build_repository_table(&config)?;
 
         let mut buf = Vec::new();
-        dump_graphviz(&mut buf, &overlay_table, roots)?;
+        dump_graphviz(&mut buf, &repo_table, roots)?;
 
         let output = String::from_utf8(buf)?;
 

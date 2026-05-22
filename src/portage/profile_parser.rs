@@ -469,7 +469,7 @@ MULTILIB_ABIS="amd64 x86"
 
 PYTHON_TARGETS="python3_11 python3_12"
 
-# Unquoted assignment (spec violation present in some overlays).
+# Unquoted assignment (spec violation present in some repositories).
 CC=x86_64-pc-linux-gnu-gcc
 
 

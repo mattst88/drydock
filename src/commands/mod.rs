@@ -18,7 +18,7 @@ use clap::ArgMatches;
 use crate::{
     config::DrydockConfig,
     graph,
-    portage::{overlay::build_overlay_map, ProfileKey},
+    portage::{repository::build_repository_table, ProfileKey},
 };
 
 /// Print the inheritance hierarchy of a given Portage profile.
@@ -31,13 +31,13 @@ pub fn parents(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<
         .map(|target| ProfileKey::from_str(target).unwrap())
         .collect();
 
-    let overlay_table = build_overlay_map(config)?;
+    let repo_table = build_repository_table(config)?;
 
     if sub_args.is_present("graph") {
-        graph::dump_graphviz(std::io::stdout(), &overlay_table, &targets)?;
+        graph::dump_graphviz(std::io::stdout(), &repo_table, &targets)?;
     } else {
         for target in targets.iter() {
-            overlay_table.print_profile_tree(std::io::stdout(), target)?;
+            repo_table.print_profile_tree(std::io::stdout(), target)?;
         }
     }
 
@@ -50,9 +50,9 @@ pub fn eval(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<()>
     let profile = ProfileKey::from_str(target)?;
 
     let target_var = sub_args.value_of("variable").unwrap();
-    let overlay_table = build_overlay_map(config)?;
+    let repo_table = build_repository_table(config)?;
 
-    let vals = overlay_table.compute_variable(&profile, target_var)?;
+    let vals = repo_table.compute_variable(&profile, target_var)?;
 
     let mut output = String::new();
     vals.into_iter()
@@ -63,12 +63,12 @@ pub fn eval(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<()>
     Ok(())
 }
 
-/// Dump an ugly Debug representation of an [crate::portage::overlay::Overlay] to aid in manual
+/// Dump an ugly Debug representation of a [crate::portage::repository::Repository] to aid in manual
 /// debugging of behavior.
 pub fn dump_debug(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<()> {
-    let target = sub_args.value_of("overlay").unwrap();
-    let overlay_table = build_overlay_map(&config)?;
+    let target = sub_args.value_of("repository").unwrap();
+    let repo_table = build_repository_table(&config)?;
 
-    println!("{:#?}", overlay_table.map[target]);
+    println!("{:#?}", repo_table.map[target]);
     Ok(())
 }

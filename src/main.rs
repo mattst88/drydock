@@ -103,14 +103,14 @@ fn main() -> anyhow::Result<()> {
         )
         .subcommand(
             SubCommand::with_name("dump_debug")
-                .about("Dump debug information for an overlay.")
+                .about("Dump debug information for a repository.")
                 .arg(
-                    Arg::with_name("overlay")
-                        .short("o")
-                        .long("overlay")
+                    Arg::with_name("repository")
+                        .short("r")
+                        .long("repository")
                         .takes_value(true)
                         .required(true)
-                        .help("The target overlay to query."),
+                        .help("The target repository to query."),
                 ),
         )
         .subcommand(

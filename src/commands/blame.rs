@@ -16,7 +16,7 @@ use source_span::{fmt::Style, Position};
 use crate::{
     config::DrydockConfig,
     portage::{
-        overlay::{build_overlay_map, OverlayTable},
+        repository::{build_repository_table, RepositoryTable},
         profile_parser::Span,
         variables::TokenState,
         ProfileKey,
@@ -44,15 +44,15 @@ pub fn blame(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<()
 
     let mut target_values = sub_args.values_of("variable").unwrap();
     let target_var = target_values.next().unwrap();
-    let overlay_table = build_overlay_map(config)?;
-    if overlay_table.is_incremental_variable(&profile, target_var) {
+    let repo_table = build_repository_table(config)?;
+    if repo_table.is_incremental_variable(&profile, target_var) {
         if let Some(subtoken_prefix) = target_values.next() {
-            blame_incremental(&overlay_table, &profile, target_var, subtoken_prefix)?;
+            blame_incremental(&repo_table, &profile, target_var, subtoken_prefix)?;
         } else {
             bail!("Please specify a token to track when blaming an incremental variable.");
         }
     } else {
-        let vals = overlay_table.compute_variable(&profile, target_var)?;
+        let vals = repo_table.compute_variable(&profile, target_var)?;
         blame_format(&vals, config);
     }
 
@@ -66,7 +66,7 @@ pub fn blame(config: &DrydockConfig, sub_args: &ArgMatches) -> anyhow::Result<()
 /// The `subtoken_prefix` argument matches any token which it is a literal prefix of, e.g. an
 /// argument of "foo" would match against the tokens "foo", "foobar", and "foolish".
 fn blame_incremental(
-    table: &OverlayTable,
+    table: &RepositoryTable,
     profile: &ProfileKey,
     variable: &str,
     subtoken_prefix: &str,
@@ -166,8 +166,8 @@ fn blame_format(tokens: &[Span], config: &DrydockConfig) {
 
 /// Helper function to extract information from the metadata in a [Span] and generate a
 /// a short label to print to a user for the source of that [Span].
-/// The generated labels look like `my-overlay/profiles/some/profile:L50`, which would
-/// correspond to line number 50 from the `some/profile` profile of the `my-overlay` overlay.
+/// The generated labels look like `my-repo/profiles/some/profile:L50`, which would
+/// correspond to line number 50 from the `some/profile` profile of the `my-repo` repository.
 fn span_label(p: &Span, _config: &DrydockConfig) -> String {
     let profile_dir = PathBuf::from("profiles");
     let mut ancestors = p.extra.ancestors();
@@ -294,10 +294,10 @@ mod tests {
 
     #[test]
     fn test_span_label_basic() {
-        let path = Path::new("/usr/src/overlay/profiles/foo/bar");
+        let path = Path::new("/usr/src/my-repo/profiles/foo/bar");
         let test_span = Span::new_extra("123456789", path);
         let config = Default::default();
         let output = span_label(&test_span, &config);
-        assert_eq!(output, "overlay/profiles/foo/bar:L1");
+        assert_eq!(output, "my-repo/profiles/foo/bar:L1");
     }
 }

@@ -171,7 +171,7 @@ impl Eq for Profile {}
 
 /// The unambiguous name & location of a profile.
 ///
-/// Looks like "overlay-name:path/to/profile".
+/// Looks like "repo-name:path/to/profile".
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ProfileKey {
     data: String,
@@ -181,24 +181,24 @@ impl FromStr for ProfileKey {
     type Err = anyhow::Error;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let mut split_by_colon = s.split(':');
-        if let (Some(overlay), Some(name)) = (split_by_colon.next(), split_by_colon.next()) {
-            if !overlay.is_empty() && !name.is_empty() {
-                return Ok(Self::new(overlay, name));
+        if let (Some(repo_name), Some(name)) = (split_by_colon.next(), split_by_colon.next()) {
+            if !repo_name.is_empty() && !name.is_empty() {
+                return Ok(Self::new(repo_name, name));
             }
         }
         bail! {"Unable to parse profile key from string: {}\
-        \nA profile key must be of the form overlay:path/to/profile.", s}
+        \nA profile key must be of the form repo-name:path/to/profile.", s}
     }
 }
 
 impl ProfileKey {
-    pub fn new<T: Into<String>, U: Into<String>>(overlay: T, name: U) -> Self {
+    pub fn new<T: Into<String>, U: Into<String>>(repo_name: T, name: U) -> Self {
         Self {
-            data: format!("{}:{}", overlay.into(), name.into()),
+            data: format!("{}:{}", repo_name.into(), name.into()),
         }
     }
 
-    pub fn overlay(&self) -> &str {
+    pub fn repo_name(&self) -> &str {
         self.data.split(':').next().unwrap()
     }
 
@@ -214,12 +214,12 @@ impl ProfileKey {
 /// A potentially ambigious reference to another profile.
 ///
 /// Parent relationships between profiles can either be specified in an absolute fashion, e.g.
-/// `some-overlay:foo/bar`, or as a relative path to the parent file e.g. `../..`.
+/// `gentoo:default/linux/amd64/23.0`, or as a relative path to the parent file e.g. `../..`.
 /// A relative reference cannot be unambiguously made into a [ProfileKey] without knowing the
 /// profile in which it was declared.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProfileReference {
-    Absolute { overlay: String, path: PathBuf },
+    Absolute { repo_name: String, path: PathBuf },
     Relative { path: PathBuf },
 }
 
@@ -305,7 +305,7 @@ mod tests {
     fn test_profilekey_parse_basic() -> anyhow::Result<()> {
         let key = ProfileKey::from_str("foo:path/to/profile")?;
         assert_eq!(key.profile(), "path/to/profile");
-        assert_eq!(key.overlay(), "foo");
+        assert_eq!(key.repo_name(), "foo");
         Ok(())
     }
 
@@ -328,7 +328,7 @@ mod tests {
     fn test_parent_parse_basic() -> anyhow::Result<()> {
         let test_profile_path = test_data_dir(&[
             "test-tree",
-            "test-overlay-spam",
+            "spam",
             "profiles",
             "special_feature",
             "extra_special_feature",
@@ -340,11 +340,11 @@ mod tests {
             vec![
                 ProfileReference::Relative { path: "..".into() },
                 ProfileReference::Absolute {
-                    overlay: "ham".into(),
+                    repo_name: "ham".into(),
                     path: "other".into()
                 },
                 ProfileReference::Absolute {
-                    overlay: "eggs".into(),
+                    repo_name: "eggs".into(),
                     path: "base".into()
                 },
             ]
@@ -355,7 +355,7 @@ mod tests {
     #[test]
     fn test_profile_ingest_basic() -> anyhow::Result<()> {
         let test_profile_path =
-            test_data_dir(&["test-tree", "test-overlay-ham", "profiles", "base"]);
+            test_data_dir(&["test-tree", "ham", "profiles", "base"]);
 
         let mut profile = Profile::new("ham", test_profile_path.clone());
         profile.parse_and_ingest_conf()?;

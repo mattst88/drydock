@@ -11,69 +11,69 @@ use std::{
 use anyhow::Context;
 use ignore::WalkState;
 
-use super::{Overlay, OverlayTable};
+use super::{Repository, RepositoryTable};
 
-/// A struct responsible for traversing the filesystem and building a collection of overlays.
+/// A struct responsible for traversing the filesystem and building a collection of repositories.
 #[derive(Debug)]
-pub struct OverlayTableBuilder {
-    pub(super) table: Arc<Mutex<OverlayTable>>,
+pub struct RepositoryTableBuilder {
+    pub(super) table: Arc<Mutex<RepositoryTable>>,
 }
 
-impl OverlayTableBuilder {
+impl RepositoryTableBuilder {
     pub fn new() -> Self {
         Self {
-            table: Arc::new(Mutex::new(OverlayTable::new())),
+            table: Arc::new(Mutex::new(RepositoryTable::new())),
         }
     }
 }
 
-impl Default for OverlayTableBuilder {
+impl Default for RepositoryTableBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'s> ignore::ParallelVisitorBuilder<'s> for OverlayTableBuilder {
+impl<'s> ignore::ParallelVisitorBuilder<'s> for RepositoryTableBuilder {
     fn build(&mut self) -> Box<dyn ignore::ParallelVisitor + 's> {
-        Box::new(OverlayTablePiece {
+        Box::new(RepositoryTablePiece {
             table: Arc::clone(&self.table),
             map: HashMap::new(),
         })
     }
 }
 
-impl TryFrom<OverlayTableBuilder> for OverlayTable {
+impl TryFrom<RepositoryTableBuilder> for RepositoryTable {
     type Error = anyhow::Error;
-    fn try_from(other: OverlayTableBuilder) -> Result<Self, Self::Error> {
+    fn try_from(other: RepositoryTableBuilder) -> Result<Self, Self::Error> {
         Ok(Arc::try_unwrap(other.table).unwrap().into_inner()?)
     }
 }
 
 /// A callback struct used in each worker thread of [ignore::ParallelVisitor].
 #[derive(Debug)]
-pub struct OverlayTablePiece {
-    table: Arc<Mutex<OverlayTable>>,
-    map: HashMap<String, Overlay>,
+pub struct RepositoryTablePiece {
+    table: Arc<Mutex<RepositoryTable>>,
+    map: HashMap<String, Repository>,
 }
 
-impl Drop for OverlayTablePiece {
+impl Drop for RepositoryTablePiece {
     fn drop(&mut self) {
         let mut table = self.table.lock().unwrap();
         table.map.extend(self.map.drain());
     }
 }
 
-impl ignore::ParallelVisitor for OverlayTablePiece {
+impl ignore::ParallelVisitor for RepositoryTablePiece {
     fn visit(&mut self, entry: Result<ignore::DirEntry, ignore::Error>) -> WalkState {
         if let Ok(dir) = entry {
-            match Overlay::try_from(dir.path()) {
-                Ok(mut overlay) => match overlay
+            match Repository::try_from(dir.path()) {
+                Ok(mut repo) => match repo
                     .parse_profiles()
-                    .with_context(|| format!("Failed while parsing profiles of {}", &overlay.name))
+                    .with_context(|| format!("Failed while parsing profiles of {}", &repo.name))
                 {
                     Ok(_) => {
                         let mut failed = false;
-                        for p in overlay.profiles.values_mut() {
+                        for p in repo.profiles.values_mut() {
                             match p.parse_and_ingest_conf().with_context(|| {
                                 format!(
                                     "Failed while parsing {}",
@@ -82,19 +82,19 @@ impl ignore::ParallelVisitor for OverlayTablePiece {
                             }) {
                                 Ok(_) => continue,
                                 Err(e) => {
-                                    eprintln!("Warning: skipping overlay {}: {}", overlay.name, e);
+                                    eprintln!("Warning: skipping repository {}: {}", repo.name, e);
                                     failed = true;
                                     break;
                                 }
                             }
                         }
                         if !failed {
-                            self.map.insert(overlay.name.clone(), overlay);
+                            self.map.insert(repo.name.clone(), repo);
                         }
                         WalkState::Skip
                     }
                     Err(e) => {
-                        eprintln!("Warning: skipping overlay at {}: {}", dir.path().display(), e);
+                        eprintln!("Warning: skipping repository at {}: {}", dir.path().display(), e);
                         WalkState::Continue
                     }
                 },
@@ -119,15 +119,15 @@ mod tests {
         let mut walker = ignore::WalkBuilder::new(&test_tree_dir);
         walker.filter_entry(|dir| dir.path().is_dir());
 
-        let mut table = OverlayTableBuilder::new();
+        let mut table = RepositoryTableBuilder::new();
 
         let walker = walker.build_parallel();
 
         walker.visit(&mut table);
 
-        let table = OverlayTable::try_from(table)?;
+        let table = RepositoryTable::try_from(table)?;
 
-        // The table should have exactly 3 overlays: `spam`, `ham`, and `eggs`.
+        // The table should have exactly 3 repositories: `spam`, `ham`, and `eggs`.
         assert_eq!(table.map.len(), 3);
 
         Ok(())
@@ -140,13 +140,13 @@ mod tests {
         let mut walker = ignore::WalkBuilder::new(&test_tree_dir);
         walker.filter_entry(|dir| dir.path().is_dir());
 
-        let mut table = OverlayTableBuilder::new();
+        let mut table = RepositoryTableBuilder::new();
 
         let walker = walker.build_parallel();
         walker.visit(&mut table);
 
-        // Overlay with bad make.defaults is skipped, not fatal.
-        let table = OverlayTable::try_from(table).unwrap();
+        // Repository with bad make.defaults is skipped, not fatal.
+        let table = RepositoryTable::try_from(table).unwrap();
         assert_eq!(table.map.len(), 0);
     }
 }

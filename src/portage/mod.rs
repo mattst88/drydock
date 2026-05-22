@@ -2,7 +2,7 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file.
 
-pub mod overlay;
+pub mod repository;
 pub mod profile;
 pub mod profile_parser;
 pub mod variables;
