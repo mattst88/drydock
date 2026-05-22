@@ -37,15 +37,14 @@ impl DrydockConfig {
                 get_default_config_path()?
             };
 
-            let mut config = config::Config::new();
-            config
-                .merge(config::File::from(config_path))
+            config::Config::builder()
+                .add_source(config::File::from(config_path))
+                .build()
                 .with_context(|| {
                     "Unable to find a configuration file. Have you tried running \
                     `drydock config --default`? You can specify a repositories path with --src-path."
-                })?;
-
-            config.try_into()?
+                })?
+                .try_deserialize()?
         };
 
         // Resolve tildes in src_path to a concrete directory.
