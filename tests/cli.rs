@@ -162,7 +162,7 @@ fn gentoo_repo_available() -> bool {
 }
 
 macro_rules! gentoo_test {
-    ($name:ident, $body:expr) => {
+    ($name:ident, $body:expr_2021) => {
         #[test]
         fn $name() -> anyhow::Result<()> {
             if !gentoo_repo_available() {

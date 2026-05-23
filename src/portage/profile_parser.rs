@@ -11,12 +11,10 @@ use nom::{
     branch::alt,
     bytes::complete::{is_not, tag, take_while, take_while1},
     character::complete::{self, multispace0, multispace1},
-    character::is_alphabetic,
-    character::is_alphanumeric,
     combinator::{map, recognize},
     multi::many0,
     sequence::{delimited, preceded, separated_pair},
-    IResult, Parser,
+    AsChar, IResult, Parser,
 };
 
 use nom_locate::LocatedSpan;
@@ -255,8 +253,8 @@ fn escaped_char(input: Span<'_>) -> IResult<Span<'_>, Value<'_>> {
 
 /// Parser to recognize variable names.
 fn variable(input: Span<'_>) -> IResult<Span<'_>, Span<'_>> {
-    let leading_symbol = |c| is_alphabetic(c as u8);
-    let trailing_symbol = |c| is_alphanumeric(c as u8) || c == '_';
+    let leading_symbol = |c: char| c.is_alpha();
+    let trailing_symbol = |c: char| c.is_alphanum() || c == '_';
     recognize(preceded(
         take_while1(leading_symbol),
         take_while(trailing_symbol),

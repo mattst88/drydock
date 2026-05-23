@@ -74,12 +74,13 @@ impl ignore::ParallelVisitor for RepositoryTablePiece {
                     Ok(_) => {
                         let mut failed = false;
                         for p in repo.profiles.values_mut() {
-                            match p.parse_and_ingest_conf().with_context(|| {
+                            let result = p.parse_and_ingest_conf().with_context(|| {
                                 format!(
                                     "Failed while parsing {}",
                                     dir.path().join(&p.name).display()
                                 )
-                            }) {
+                            });
+                            match result {
                                 Ok(_) => continue,
                                 Err(e) => {
                                     eprintln!("Warning: skipping repository {}: {}", repo.name, e);
